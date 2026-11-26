@@ -1,6 +1,14 @@
 -- ============================================================
 -- Envelope (מעטפות) – Supabase schema
 -- Paste this entire script into: Supabase → SQL Editor → Run
+--
+-- Safe to re-run: CREATE IF NOT EXISTS + ALTER ADD COLUMN IF NOT EXISTS
+-- so older envelopes tables (missing space_code, etc.) are upgraded.
+--
+-- QUICK FIX (only if the table is EMPTY and you prefer a clean slate):
+--   DROP TABLE IF EXISTS public.envelopes CASCADE;
+-- then re-run this entire script.
+-- Prefer the non-destructive ALTER path below when you have data.
 -- ============================================================
 
 -- Shared monetary-gift envelopes, scoped by space_code (shared PIN).
@@ -22,6 +30,83 @@ CREATE TABLE IF NOT EXISTS public.envelopes (
   notes           text,
   created_at      timestamptz NOT NULL DEFAULT now()
 );
+
+-- Upgrade path: older tables may exist without these columns.
+-- CREATE TABLE IF NOT EXISTS skips creation, so we ADD missing columns here.
+ALTER TABLE public.envelopes
+  ADD COLUMN IF NOT EXISTS id uuid DEFAULT gen_random_uuid(),
+  ADD COLUMN IF NOT EXISTS space_code text,
+  ADD COLUMN IF NOT EXISTS event_type text,
+  ADD COLUMN IF NOT EXISTS host_name text,
+  ADD COLUMN IF NOT EXISTS event_date text,
+  ADD COLUMN IF NOT EXISTS attended boolean DEFAULT true,
+  ADD COLUMN IF NOT EXISTS party_size_type text DEFAULT 'couple',
+  ADD COLUMN IF NOT EXISTS party_count integer DEFAULT 2,
+  ADD COLUMN IF NOT EXISTS amount_given numeric DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS amount_received numeric,
+  ADD COLUMN IF NOT EXISTS notes text,
+  ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
+
+-- space_code: backfill then enforce NOT NULL (safe for empty + legacy rows)
+UPDATE public.envelopes
+SET space_code = 'legacy'
+WHERE space_code IS NULL OR space_code = '';
+
+ALTER TABLE public.envelopes
+  ALTER COLUMN space_code SET NOT NULL;
+
+-- Sensible defaults / NOT NULL for other required columns on upgraded tables
+UPDATE public.envelopes SET event_type = 'other' WHERE event_type IS NULL OR event_type = '';
+UPDATE public.envelopes SET host_name = 'unknown' WHERE host_name IS NULL OR host_name = '';
+UPDATE public.envelopes SET attended = true WHERE attended IS NULL;
+UPDATE public.envelopes SET party_size_type = 'couple' WHERE party_size_type IS NULL;
+UPDATE public.envelopes SET party_count = 2 WHERE party_count IS NULL;
+UPDATE public.envelopes SET amount_given = 0 WHERE amount_given IS NULL;
+UPDATE public.envelopes SET created_at = now() WHERE created_at IS NULL;
+
+ALTER TABLE public.envelopes
+  ALTER COLUMN event_type SET NOT NULL,
+  ALTER COLUMN host_name SET NOT NULL,
+  ALTER COLUMN attended SET NOT NULL,
+  ALTER COLUMN attended SET DEFAULT true,
+  ALTER COLUMN party_size_type SET NOT NULL,
+  ALTER COLUMN party_size_type SET DEFAULT 'couple',
+  ALTER COLUMN party_count SET NOT NULL,
+  ALTER COLUMN party_count SET DEFAULT 2,
+  ALTER COLUMN amount_given SET NOT NULL,
+  ALTER COLUMN amount_given SET DEFAULT 0,
+  ALTER COLUMN created_at SET NOT NULL,
+  ALTER COLUMN created_at SET DEFAULT now();
+
+-- Ensure party_size_type check constraint exists (idempotent)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'envelopes_party_size_type_check'
+      AND conrelid = 'public.envelopes'::regclass
+  ) THEN
+    ALTER TABLE public.envelopes
+      ADD CONSTRAINT envelopes_party_size_type_check
+      CHECK (party_size_type IN ('solo', 'couple', 'family'));
+  END IF;
+END $$;
+
+-- Ensure id is primary key when upgrading a table that lacked one
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE contype = 'p'
+      AND conrelid = 'public.envelopes'::regclass
+  ) THEN
+    -- Backfill any null ids before adding PK
+    UPDATE public.envelopes SET id = gen_random_uuid() WHERE id IS NULL;
+    ALTER TABLE public.envelopes ALTER COLUMN id SET NOT NULL;
+    ALTER TABLE public.envelopes ALTER COLUMN id SET DEFAULT gen_random_uuid();
+    ALTER TABLE public.envelopes ADD PRIMARY KEY (id);
+  END IF;
+END $$;
 
 -- Fast lookups / realtime filters by household space
 CREATE INDEX IF NOT EXISTS envelopes_space_code_idx

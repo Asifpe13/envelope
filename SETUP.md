@@ -9,6 +9,20 @@ Hebrew RTL PWA for tracking wedding/event gift envelopes, with **shared Supabase
 3. Paste the full contents of [`supabase/schema.sql`](./supabase/schema.sql) and click **Run**.
 4. Confirm Realtime is on for `envelopes` (the script adds it to `supabase_realtime`).
 
+### Re-running / upgrading an old table
+
+`schema.sql` is **idempotent**: it uses `CREATE TABLE IF NOT EXISTS` plus `ALTER TABLE … ADD COLUMN IF NOT EXISTS`, so it upgrades an older `envelopes` table that is missing `space_code` (or other columns) instead of failing on `CREATE INDEX`.
+
+If you already hit `ERROR: column "space_code" does not exist`, just paste the **updated** `schema.sql` again and Run — no need to drop data.
+
+**Optional clean slate** (only if the table is empty and you prefer recreate):
+
+```sql
+DROP TABLE IF EXISTS public.envelopes CASCADE;
+```
+
+Then paste and Run the full `schema.sql` again.
+
 ## 2. Environment variables
 
 1. Copy `.env.example` → `.env` in the project root:
