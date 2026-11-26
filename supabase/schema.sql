@@ -108,6 +108,22 @@ BEGIN
   END IF;
 END $$;
 
+-- Legacy cleanup: older auth-based schemas had user_id NOT NULL, which blocks
+-- anon inserts (this app has no login — access is via space_code only).
+-- Drop the column if present. Safe when empty or when user_id is unused.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'envelopes'
+      AND column_name = 'user_id'
+  ) THEN
+    ALTER TABLE public.envelopes DROP COLUMN user_id;
+  END IF;
+END $$;
+
 -- Fast lookups / realtime filters by household space
 CREATE INDEX IF NOT EXISTS envelopes_space_code_idx
   ON public.envelopes (space_code);
