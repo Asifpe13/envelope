@@ -13,7 +13,16 @@ Hebrew RTL PWA for tracking wedding/event gift envelopes, with **shared Supabase
 
 `schema.sql` is **idempotent**: it uses `CREATE TABLE IF NOT EXISTS` plus `ALTER TABLE … ADD COLUMN IF NOT EXISTS`, so it upgrades an older `envelopes` table that is missing `space_code` (or other columns) instead of failing on `CREATE INDEX`.
 
-If you already hit `ERROR: column "space_code" does not exist`, or inserts fail with `null value in column "user_id"`, just paste the **updated** `schema.sql` again and Run — no need to drop data. The script drops a legacy `user_id` column from older auth-based drafts.
+If you already hit `ERROR: column "space_code" does not exist`, or inserts fail with `null value in column "user_id"`, just paste the **updated** `schema.sql` again and Run — no need to drop data. The script drops legacy RLS policies that reference `user_id`, then drops the column.
+
+**Immediate unblock** (if you see `cannot drop column user_id … policy envelopes_all depends on it`):
+
+```sql
+DROP POLICY IF EXISTS "envelopes_all" ON public.envelopes;
+ALTER TABLE public.envelopes DROP COLUMN IF EXISTS user_id;
+```
+
+Then re-run the full `schema.sql` so grants + anon RLS policies are applied.
 
 **Optional clean slate** (only if the table is empty and you prefer recreate):
 

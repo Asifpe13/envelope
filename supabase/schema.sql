@@ -110,19 +110,22 @@ END $$;
 
 -- Legacy cleanup: older auth-based schemas had user_id NOT NULL, which blocks
 -- anon inserts (this app has no login — access is via space_code only).
--- Drop the column if present. Safe when empty or when user_id is unused.
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'envelopes'
-      AND column_name = 'user_id'
-  ) THEN
-    ALTER TABLE public.envelopes DROP COLUMN user_id;
-  END IF;
-END $$;
+-- Policies that reference user_id / auth.uid() must be dropped BEFORE the column
+-- (Postgres error 2BP01 otherwise — do not rely on CASCADE).
+DROP POLICY IF EXISTS "envelopes_all" ON public.envelopes;
+DROP POLICY IF EXISTS "envelopes_policy" ON public.envelopes;
+DROP POLICY IF EXISTS "Users can manage their own envelopes" ON public.envelopes;
+DROP POLICY IF EXISTS "Enable all access for authenticated users" ON public.envelopes;
+DROP POLICY IF EXISTS "envelopes_select" ON public.envelopes;
+DROP POLICY IF EXISTS "envelopes_insert" ON public.envelopes;
+DROP POLICY IF EXISTS "envelopes_update" ON public.envelopes;
+DROP POLICY IF EXISTS "envelopes_delete" ON public.envelopes;
+DROP POLICY IF EXISTS "envelopes_select_own" ON public.envelopes;
+DROP POLICY IF EXISTS "envelopes_insert_own" ON public.envelopes;
+DROP POLICY IF EXISTS "envelopes_update_own" ON public.envelopes;
+DROP POLICY IF EXISTS "envelopes_delete_own" ON public.envelopes;
+
+ALTER TABLE public.envelopes DROP COLUMN IF EXISTS user_id;
 
 -- Fast lookups / realtime filters by household space
 CREATE INDEX IF NOT EXISTS envelopes_space_code_idx
