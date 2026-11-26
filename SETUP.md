@@ -2,47 +2,26 @@
 
 Hebrew RTL PWA for tracking wedding/event gift envelopes, with **shared Supabase sync** between two phones and **no email/password login**.
 
-## 1. Supabase database
+## One remaining DB step
 
-1. Create a free project at [supabase.com](https://supabase.com).
-2. Open **SQL Editor** → New query.
-3. Paste the full contents of [`supabase/schema.sql`](./supabase/schema.sql) and click **Run**.
-4. Confirm Realtime is on for `envelopes` (the script adds it to `supabase_realtime`).
+I cannot run DDL against your Supabase project from this agent (no `SUPABASE_ACCESS_TOKEN`, no `service_role`, no DB password — the anon key cannot alter schema).
 
-### Re-running / upgrading an old table
+**Do this once:** Supabase → **SQL Editor** → New query → paste the **entire** contents of [`supabase/schema.sql`](./supabase/schema.sql) → **Run**.
 
-`schema.sql` is **idempotent**: it uses `CREATE TABLE IF NOT EXISTS` plus `ALTER TABLE … ADD COLUMN IF NOT EXISTS`, so it upgrades an older `envelopes` table that is missing `space_code` (or other columns) instead of failing on `CREATE INDEX`.
+That single script:
 
-If you already hit `ERROR: column "space_code" does not exist`, or inserts fail with `null value in column "user_id"`, just paste the **updated** `schema.sql` again and Run — no need to drop data. The script drops legacy RLS policies that reference `user_id`, then drops the column.
+- upgrades an existing `envelopes` table (adds missing columns)
+- drops legacy RLS policies that reference `user_id` (fixes `cannot drop column user_id … policy envelopes_all depends on it`)
+- drops the legacy `user_id` column
+- grants `anon` SELECT/INSERT/UPDATE/DELETE
+- creates anon RLS policies
+- enables Realtime
 
-**Immediate unblock** (if you see `cannot drop column user_id … policy envelopes_all depends on it`):
+Safe to re-run.
 
-```sql
-DROP POLICY IF EXISTS "envelopes_all" ON public.envelopes;
-ALTER TABLE public.envelopes DROP COLUMN IF EXISTS user_id;
-```
+## Environment variables (already done locally)
 
-Then re-run the full `schema.sql` so grants + anon RLS policies are applied.
-
-**Optional clean slate** (only if the table is empty and you prefer recreate):
-
-```sql
-DROP TABLE IF EXISTS public.envelopes CASCADE;
-```
-
-Then paste and Run the full `schema.sql` again.
-
-## 2. Environment variables
-
-1. Copy `.env.example` → `.env` in the project root:
-
-```bash
-cp .env.example .env
-```
-
-2. In Supabase → **Project Settings → API**, copy:
-   - **Project URL** → `VITE_SUPABASE_URL`
-   - **anon public** key → `VITE_SUPABASE_ANON_KEY`
+`.env` (gitignored) should contain:
 
 ```env
 VITE_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
@@ -50,56 +29,41 @@ VITE_SUPABASE_ANON_KEY=eyJhbGciOi...
 VITE_DEFAULT_SPACE_CODE=our-shared-pin
 ```
 
-3. **Never** put the `service_role` key in `.env` or the frontend. Only the **anon** key belongs in the app.
-4. `VITE_DEFAULT_SPACE_CODE` is optional — both phones can enter the same code on first launch instead.
+Copy from Supabase → **Project Settings → API** (Project URL + **anon public** key). Never put `service_role` in the app.
 
-Restart the dev server after changing `.env`.
-
-## 3. Local development
+## Local development
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open the URL Vite prints (usually `http://localhost:5173`).
-
 On first open, confirm the **קוד פנקס משותף**. Both phones must use the **same** code.
 
-## 4. Production build
+## Deploy
 
-```bash
-npm run build
-npm run preview
-```
+### Vercel (recommended for Vite `VITE_*` env)
 
-## 5. Deploy to Vercel
+Cursor `publish-app` cannot bind `VITE_*` secrets (reserved). Use Vercel:
 
-1. Push this repo to GitHub.
-2. Import the project in [vercel.com](https://vercel.com).
-3. Framework preset: **Vite**.
-4. Add the same env vars (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, optional `VITE_DEFAULT_SPACE_CODE`).
-5. Deploy. Vercel will run `npm run build` and serve `dist/`.
+1. Import the GitHub repo at [vercel.com](https://vercel.com), framework **Vite**
+2. Add the same three env vars as in `.env`
+3. Deploy
 
-## 6. Install on iPhone (Add to Home Screen)
+Or claim a temporary agent deploy if one was provided in chat (expires ~60 minutes unless claimed).
 
-1. Open the deployed HTTPS URL in **Safari**.
-2. Tap the Share button → **Add to Home Screen**.
-3. Confirm the name **Envelope**.
-4. Launch from the home screen icon (standalone PWA).
+## Install on phone
 
-### Android (Chrome)
+- **iPhone (Safari):** Share → Add to Home Screen → **Envelope**
+- **Android (Chrome):** Menu → Install app / Add to Home screen
 
-Menu → **Install app** / **Add to Home screen**.
+## How sync works
 
-## 7. How sync works
+- Both devices store `space_code` in LocalStorage
+- All reads/writes filter by that `space_code`
+- Supabase Realtime pushes live changes; LocalStorage caches for poor reception
+- Use **גיבוי JSON / CSV** for offline backup
 
-- Both devices store `space_code` in `LocalStorage`.
-- All reads/writes filter by that `space_code`.
-- Supabase Realtime (`postgres_changes`) pushes inserts/updates/deletes live.
-- Latest rows are also cached in `LocalStorage` for poor reception at event halls.
-- Use **גיבוי JSON / CSV** on the home screen for an offline backup.
+## Security
 
-## Security reminder
-
-Anyone who knows your **anon key** (public by design) **and** your `space_code` can read/write that shared notebook. Use a non-guessable shared code and treat it like a household PIN.
+Anyone who knows your **anon key** (public by design) **and** your `space_code` can read/write that notebook. Use a non-guessable shared code.
