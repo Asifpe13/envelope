@@ -30,6 +30,10 @@ CREATE INDEX IF NOT EXISTS envelopes_space_code_idx
 CREATE INDEX IF NOT EXISTS envelopes_space_host_idx
   ON public.envelopes (space_code, host_name);
 
+-- Table-level grants (required — RLS policies alone are not enough)
+GRANT USAGE ON SCHEMA public TO anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.envelopes TO anon, authenticated;
+
 -- Enable Row Level Security
 ALTER TABLE public.envelopes ENABLE ROW LEVEL SECURITY;
 
