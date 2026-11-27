@@ -108,10 +108,8 @@ BEGIN
   END IF;
 END $$;
 
--- Legacy cleanup: older auth-based schemas had user_id NOT NULL, which blocks
--- anon inserts (this app has no login — access is via space_code only).
--- Policies that reference user_id / auth.uid() must be dropped BEFORE the column
--- (Postgres error 2BP01 otherwise — do not rely on CASCADE).
+-- Legacy cleanup: older drafts used auth columns (user_id, person_id, amount,
+-- attendee_count, …) that block inserts. Drop ALL non-app columns.
 DROP POLICY IF EXISTS "envelopes_all" ON public.envelopes;
 DROP POLICY IF EXISTS "envelopes_policy" ON public.envelopes;
 DROP POLICY IF EXISTS "Users can manage their own envelopes" ON public.envelopes;
@@ -125,7 +123,28 @@ DROP POLICY IF EXISTS "envelopes_insert_own" ON public.envelopes;
 DROP POLICY IF EXISTS "envelopes_update_own" ON public.envelopes;
 DROP POLICY IF EXISTS "envelopes_delete_own" ON public.envelopes;
 
-ALTER TABLE public.envelopes DROP COLUMN IF EXISTS user_id;
+DO $$
+DECLARE
+  keep text[] := ARRAY[
+    'id', 'space_code', 'event_type', 'host_name', 'event_date',
+    'attended', 'party_size_type', 'party_count',
+    'amount_given', 'amount_received', 'notes', 'created_at'
+  ];
+  r record;
+BEGIN
+  FOR r IN
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'envelopes'
+      AND column_name <> ALL (keep)
+  LOOP
+    EXECUTE format(
+      'ALTER TABLE public.envelopes DROP COLUMN IF EXISTS %I CASCADE',
+      r.column_name
+    );
+  END LOOP;
+END $$;
 
 -- Fast lookups / realtime filters by household space
 CREATE INDEX IF NOT EXISTS envelopes_space_code_idx

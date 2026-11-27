@@ -84,7 +84,7 @@ export function useEnvelopes(spaceCode: string | null) {
         .eq('space_code', spaceCode)
         .order('created_at', { ascending: false })
 
-      if (qErr) throw qErr
+      if (qErr) throw new Error(qErr.message)
       const rows = (data ?? []).map((r) => normalizeRow(r as Record<string, unknown>))
       commit(rows, 'synced')
     } catch (e) {
@@ -180,7 +180,7 @@ export function useEnvelopes(spaceCode: string | null) {
         .insert(payload)
         .select('*')
         .single()
-      if (qErr) throw qErr
+      if (qErr) throw new Error(qErr.message)
       const row = normalizeRow(data as Record<string, unknown>)
       patchLocal((prev) => [row, ...prev.filter((e) => e.id !== row.id)], 'synced')
       return row
@@ -223,7 +223,7 @@ export function useEnvelopes(spaceCode: string | null) {
         .eq('space_code', spaceCode)
         .select('*')
         .single()
-      if (qErr) throw qErr
+      if (qErr) throw new Error(qErr.message)
       const row = normalizeRow(data as Record<string, unknown>)
       patchLocal(
         (prev) => prev.map((e) => (e.id === row.id ? row : e)),
@@ -247,7 +247,7 @@ export function useEnvelopes(spaceCode: string | null) {
         .delete()
         .eq('id', id)
         .eq('space_code', spaceCode)
-      if (qErr) throw qErr
+      if (qErr) throw new Error(qErr.message)
       patchLocal((prev) => prev.filter((e) => e.id !== id), 'synced')
     },
     [spaceCode, patchLocal, client],
@@ -269,7 +269,7 @@ export function useEnvelopes(spaceCode: string | null) {
     }
 
     const { data, error: qErr } = await client.from('envelopes').insert(payloads).select('*')
-    if (qErr) throw qErr
+    if (qErr) throw new Error(qErr.message)
     const rows = (data ?? []).map((r) => normalizeRow(r as Record<string, unknown>))
     patchLocal((prev) => [...rows, ...prev], 'synced')
   }, [spaceCode, toPayload, patchLocal, client])
