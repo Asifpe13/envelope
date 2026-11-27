@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Search, Sparkles } from 'lucide-react'
 import { EnvelopeCard } from '../components/EnvelopeCard'
 import { ConfirmModal } from '../components/ConfirmModal'
-import { EVENT_TYPES, type Envelope } from '../lib/types'
+import { EVENT_TYPE_OPTIONS, eventTypeLabel, type Envelope } from '../lib/types'
 
 interface Props {
   envelopes: Envelope[]
@@ -61,18 +61,29 @@ export function EnvelopeList({
       </div>
 
       <div className="mt-3 flex gap-2 overflow-x-auto pb-1 scrollbar-none">
-        {['הכל', ...EVENT_TYPES].map((t) => (
+        <button
+          type="button"
+          onClick={() => setEventFilter('הכל')}
+          className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition ${
+            eventFilter === 'הכל'
+              ? 'bg-forest text-cream'
+              : 'bg-white/70 text-forest/70 ring-1 ring-forest/10'
+          }`}
+        >
+          הכל
+        </button>
+        {EVENT_TYPE_OPTIONS.map((t) => (
           <button
-            key={t}
+            key={t.id}
             type="button"
-            onClick={() => setEventFilter(t)}
+            onClick={() => setEventFilter(t.id)}
             className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition ${
-              eventFilter === t
+              eventFilter === t.id
                 ? 'bg-forest text-cream'
                 : 'bg-white/70 text-forest/70 ring-1 ring-forest/10'
             }`}
           >
-            {t}
+            {t.label}
           </button>
         ))}
       </div>
@@ -148,7 +159,7 @@ export function EnvelopeList({
         title="למחוק מעטפה?"
         message={
           pendingDelete
-            ? `למחוק את המעטפה ל${pendingDelete.host_name} (${pendingDelete.event_type})?`
+            ? `למחוק את המעטפה ל${pendingDelete.host_name} (${eventTypeLabel(pendingDelete.event_type)})?`
             : ''
         }
         onCancel={() => setPendingDelete(null)}

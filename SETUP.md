@@ -38,15 +38,15 @@ From Home you can reopen **שתף פנקס**, or leave and create/join another n
 
 ## Deploy
 
-### Vercel (recommended for Vite `VITE_*` env)
+### Cursor / grok.bot (`*.apps.grok.bot`)
 
-Cursor `publish-app` cannot bind `VITE_*` secrets (reserved). Use Vercel:
+Publish builds have no gitignored `.env`, so the app falls back to the embedded public anon config in `src/lib/supabasePublic.ts` (anon key is designed to be public). Traffic talks to Supabase directly (Realtime on).
+
+### Vercel (optional; can still use env)
 
 1. Import the GitHub repo at [vercel.com](https://vercel.com), framework **Vite**
-2. Add `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY`
-3. Deploy
-
-Or claim a temporary agent deploy if one was provided in chat (expires ~60 minutes unless claimed).
+2. Optionally set `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` (overrides the embedded public config)
+3. Deploy — `vercel.json` rewrites `/sb` → Supabase (Realtime stays off on the proxy)
 
 ## Install on phone
 

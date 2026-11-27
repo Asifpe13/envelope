@@ -1,25 +1,58 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { formatSyncError } from './errors'
+import { SUPABASE_PUBLIC_ANON_KEY, SUPABASE_PUBLIC_URL } from './supabasePublic'
 
-const configuredUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined
-const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
+const envUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined
+const envAnon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
+
+function pickUrl(): string | undefined {
+  const fromEnv = envUrl?.trim()
+  if (fromEnv && !fromEnv.includes('YOUR_PROJECT')) return fromEnv
+  const fromPublic = SUPABASE_PUBLIC_URL.trim()
+  if (fromPublic && !fromPublic.includes('YOUR_PROJECT')) return fromPublic
+  return undefined
+}
+
+function pickAnon(): string | undefined {
+  const fromEnv = envAnon?.trim()
+  if (fromEnv) return fromEnv
+  const fromPublic = SUPABASE_PUBLIC_ANON_KEY.trim()
+  return fromPublic || undefined
+}
+
+const configuredUrl = pickUrl()
+const anon = pickAnon()
 
 /**
- * Browser traffic goes through same-origin `/sb` so mobile ad-blockers that
- * block `*.supabase.co` cannot break sync. Vercel + Vite proxy to the project.
+ * Prefer same-origin `/sb` when the host rewrites it (Vercel + Vite proxy).
+ * On Cursor/grok.bot publish hosts there is no `/sb` rewrite — use the project URL directly.
+ */
+function hostSupportsSbProxy(): boolean {
+  if (typeof window === 'undefined') return false
+  const host = window.location.hostname
+  if (host === 'localhost' || host === '127.0.0.1') return true
+  if (host.endsWith('.vercel.app')) return true
+  return false
+}
+
+/**
+ * Browser traffic on Vercel/local goes through same-origin `/sb` so mobile
+ * ad-blockers that block `*.supabase.co` cannot break sync.
+ *
+ * On `*.apps.grok.bot` (and other hosts without rewrites) use the direct
+ * Supabase URL so REST + Realtime work.
  *
  * Vercel HTTP rewrites cannot upgrade WebSockets, so Realtime must stay off
  * while the client URL is same-origin `/sb` (REST remains the source of truth).
  */
 function resolveSupabaseUrl(): string | undefined {
-  if (!configuredUrl || configuredUrl.includes('YOUR_PROJECT')) return undefined
+  if (!configuredUrl) return undefined
   if (typeof window === 'undefined') return configuredUrl
-  return `${window.location.origin}/sb`
+  if (hostSupportsSbProxy()) return `${window.location.origin}/sb`
+  return configuredUrl
 }
 
-export const isSupabaseConfigured = Boolean(
-  configuredUrl && anon && !configuredUrl.includes('YOUR_PROJECT'),
-)
+export const isSupabaseConfigured = Boolean(configuredUrl && anon)
 
 /** True when the browser talks to Supabase via same-origin `/sb` (no WS proxy). */
 export function isSupabaseProxied(): boolean {
@@ -127,7 +160,7 @@ export async function ensureAnonymousSession(): Promise<void> {
   throw new Error(formatSyncError(lastError))
 }
 
-/** Quick reachability check used by the retry UI (same-origin `/sb`). */
+/** Quick reachability check used by the retry UI. */
 export async function probeSupabase(): Promise<{ ok: boolean; detail: string }> {
   const url = resolveSupabaseUrl()
   if (!url || !anon) return { ok: false, detail: 'חסרים משתני סביבה' }

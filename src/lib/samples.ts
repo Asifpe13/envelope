@@ -2,7 +2,7 @@ import type { EnvelopeInput } from './types'
 
 export const SAMPLE_ENVELOPES: EnvelopeInput[] = [
   {
-    event_type: 'חתונה',
+    event_type: 'wedding',
     host_name: 'רותם ורביב',
     event_date: null,
     attended: true,
@@ -13,7 +13,7 @@ export const SAMPLE_ENVELOPES: EnvelopeInput[] = [
     notes: null,
   },
   {
-    event_type: 'חינה',
+    event_type: 'henna',
     host_name: 'רותם ורביב',
     event_date: null,
     attended: true,
@@ -24,7 +24,7 @@ export const SAMPLE_ENVELOPES: EnvelopeInput[] = [
     notes: null,
   },
   {
-    event_type: 'בריתה',
+    event_type: 'britah',
     host_name: 'אוראל חן',
     event_date: null,
     attended: false,

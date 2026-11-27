@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { Users } from 'lucide-react'
 import { formatIls, groupByHost } from '../lib/format'
-import type { Envelope } from '../lib/types'
+import { eventTypeLabel, type Envelope } from '../lib/types'
 
 interface Props {
   envelopes: Envelope[]
@@ -45,7 +45,7 @@ export function People({ envelopes }: Props) {
                         key={e.id}
                         className="rounded-md bg-forest/8 px-2 py-0.5 text-[11px] font-medium text-forest/75"
                       >
-                        {e.event_type}
+                        {eventTypeLabel(e.event_type)}
                       </span>
                     ))}
                   </div>

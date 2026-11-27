@@ -132,6 +132,23 @@ BEGIN
   END IF;
 END $$;
 
+-- Canonical English slugs (UI maps to Hebrew labels). Keep in sync with src/lib/types.ts.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'envelopes_event_type_chk'
+      AND conrelid = 'public.envelopes'::regclass
+  ) THEN
+    ALTER TABLE public.envelopes DROP CONSTRAINT envelopes_event_type_chk;
+  END IF;
+  ALTER TABLE public.envelopes
+    ADD CONSTRAINT envelopes_event_type_chk
+    CHECK (event_type IN (
+      'wedding', 'henna', 'bar_mitzvah', 'bat_mitzvah', 'brit', 'britah', 'other'
+    ));
+END $$;
+
 DO $$
 BEGIN
   IF NOT EXISTS (

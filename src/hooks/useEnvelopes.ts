@@ -9,7 +9,7 @@ import {
   isRealtimeEnabled,
   isSupabaseConfigured,
 } from '../lib/supabase'
-import type { Envelope, EnvelopeInput, SyncStatus } from '../lib/types'
+import { normalizeEventType, type Envelope, type EnvelopeInput, type SyncStatus } from '../lib/types'
 
 function sortRows(rows: Envelope[]): Envelope[] {
   return [...rows].sort((a, b) => {
@@ -23,7 +23,7 @@ function normalizeRow(row: Record<string, unknown>): Envelope {
   return {
     id: String(row.id),
     space_code: String(row.space_code ?? ''),
-    event_type: String(row.event_type ?? ''),
+    event_type: normalizeEventType(String(row.event_type ?? '')),
     host_name: String(row.host_name ?? ''),
     event_date: (row.event_date as string | null) ?? null,
     attended: Boolean(row.attended),
@@ -108,6 +108,20 @@ export function useEnvelopes(spaceCode: string | null, cloudSync = true) {
     void refresh()
   }, [refresh])
 
+  // Pull again when the tab/app becomes visible (covers missed Realtime + proxy-only hosts).
+  useEffect(() => {
+    if (!spaceCode || !isSupabaseConfigured || !cloudSync) return
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void refresh()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
+    }
+  }, [spaceCode, cloudSync, refresh])
+
   // Same-origin `/sb` cannot proxy WebSockets — skip Realtime; REST refresh is enough.
   useEffect(() => {
     if (!spaceCode || !isSupabaseConfigured || !cloudSync || !isRealtimeEnabled()) return
@@ -171,7 +185,7 @@ export function useEnvelopes(spaceCode: string | null, cloudSync = true) {
       if (!spaceCode) throw new Error('אין קוד פנקס')
       return {
         space_code: spaceCode,
-        event_type: input.event_type,
+        event_type: normalizeEventType(input.event_type),
         host_name: input.host_name.trim(),
         event_date: input.event_date || null,
         attended: input.attended,
@@ -204,6 +218,7 @@ export function useEnvelopes(spaceCode: string | null, cloudSync = true) {
       }
 
       await ensureAnonymousSession()
+      if (spaceCode) await ensureSpaceMembership(spaceCode)
       const client = getSupabase()
       if (!client) throw new Error('Supabase לא מוגדר')
 
@@ -217,7 +232,7 @@ export function useEnvelopes(spaceCode: string | null, cloudSync = true) {
       patchLocal((prev) => [row, ...prev.filter((e) => e.id !== row.id)], 'synced')
       return row
     },
-    [toPayload, patchLocal, cloudSync],
+    [toPayload, patchLocal, cloudSync, spaceCode],
   )
 
   const updateEnvelope = useCallback(
@@ -225,7 +240,7 @@ export function useEnvelopes(spaceCode: string | null, cloudSync = true) {
       if (!spaceCode) throw new Error('אין קוד פנקס')
 
       const payload: Record<string, unknown> = {}
-      if (patch.event_type !== undefined) payload.event_type = patch.event_type
+      if (patch.event_type !== undefined) payload.event_type = normalizeEventType(patch.event_type)
       if (patch.host_name !== undefined) payload.host_name = patch.host_name.trim()
       if (patch.event_date !== undefined) payload.event_date = patch.event_date || null
       if (patch.attended !== undefined) payload.attended = patch.attended
@@ -249,6 +264,7 @@ export function useEnvelopes(spaceCode: string | null, cloudSync = true) {
       }
 
       await ensureAnonymousSession()
+      await ensureSpaceMembership(spaceCode)
       const client = getSupabase()
       if (!client) throw new Error('Supabase לא מוגדר')
 
@@ -279,6 +295,7 @@ export function useEnvelopes(spaceCode: string | null, cloudSync = true) {
       }
 
       await ensureAnonymousSession()
+      await ensureSpaceMembership(spaceCode)
       const client = getSupabase()
       if (!client) throw new Error('Supabase לא מוגדר')
 
@@ -309,6 +326,7 @@ export function useEnvelopes(spaceCode: string | null, cloudSync = true) {
     }
 
     await ensureAnonymousSession()
+    await ensureSpaceMembership(spaceCode)
     const client = getSupabase()
     if (!client) throw new Error('Supabase לא מוגדר')
 

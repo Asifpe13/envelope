@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react'
 import { ArrowRight, Minus, Plus } from 'lucide-react'
 import {
   AMOUNT_PRESETS,
-  EVENT_TYPES,
+  EVENT_TYPE_OPTIONS,
+  normalizeEventType,
   type Envelope,
   type EnvelopeInput,
   type EventType,
@@ -18,8 +19,8 @@ interface Props {
 }
 
 export function EnvelopeForm({ initial, hostSuggestions, onCancel, onSave }: Props) {
-  const [eventType, setEventType] = useState<EventType | string>(
-    initial?.event_type ?? 'חתונה',
+  const [eventType, setEventType] = useState<EventType>(
+    normalizeEventType(initial?.event_type ?? 'wedding'),
   )
   const [hostName, setHostName] = useState(initial?.host_name ?? '')
   const [attended, setAttended] = useState(initial?.attended ?? true)
@@ -95,18 +96,18 @@ export function EnvelopeForm({ initial, hostSuggestions, onCancel, onSave }: Pro
         <fieldset>
           <legend className="mb-2 text-sm font-medium text-forest">סוג השמחה</legend>
           <div className="flex flex-wrap gap-2">
-            {EVENT_TYPES.map((t) => (
+            {EVENT_TYPE_OPTIONS.map((t) => (
               <button
-                key={t}
+                key={t.id}
                 type="button"
-                onClick={() => setEventType(t)}
+                onClick={() => setEventType(t.id)}
                 className={`rounded-xl px-3 py-2 text-sm font-medium transition ${
-                  eventType === t
+                  eventType === t.id
                     ? 'bg-forest text-cream'
                     : 'bg-white/70 text-forest/70 ring-1 ring-forest/10'
                 }`}
               >
-                {t}
+                {t.label}
               </button>
             ))}
           </div>

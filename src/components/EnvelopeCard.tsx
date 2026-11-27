@@ -9,16 +9,16 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react'
-import type { Envelope } from '../lib/types'
+import { eventTypeLabel, type Envelope } from '../lib/types'
 import { formatIls, formatNet, partyLabel } from '../lib/format'
 
 const TYPE_META: Record<string, { icon: typeof Heart; tone: string }> = {
-  חתונה: { icon: Heart, tone: 'bg-rose-100 text-rose-800' },
-  חינה: { icon: Sparkles, tone: 'bg-amber-100 text-amber-900' },
-  'בר מצווה': { icon: Cake, tone: 'bg-sky-100 text-sky-900' },
-  'בת מצווה': { icon: Cake, tone: 'bg-fuchsia-100 text-fuchsia-900' },
-  ברית: { icon: Baby, tone: 'bg-emerald-100 text-emerald-900' },
-  בריתה: { icon: Baby, tone: 'bg-teal-100 text-teal-900' },
+  wedding: { icon: Heart, tone: 'bg-rose-100 text-rose-800' },
+  henna: { icon: Sparkles, tone: 'bg-amber-100 text-amber-900' },
+  bar_mitzvah: { icon: Cake, tone: 'bg-sky-100 text-sky-900' },
+  bat_mitzvah: { icon: Cake, tone: 'bg-fuchsia-100 text-fuchsia-900' },
+  brit: { icon: Baby, tone: 'bg-emerald-100 text-emerald-900' },
+  britah: { icon: Baby, tone: 'bg-teal-100 text-teal-900' },
 }
 
 interface Props {
@@ -65,7 +65,7 @@ export function EnvelopeCard({ envelope, onEdit, onDelete, onSaveReceived }: Pro
               className={`inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[11px] font-semibold ${meta.tone}`}
             >
               <Icon size={12} />
-              {envelope.event_type}
+              {eventTypeLabel(envelope.event_type)}
             </span>
             <span className="text-[11px] text-forest/50">
               {partyLabel(envelope.attended, envelope.party_size_type, envelope.party_count)}
