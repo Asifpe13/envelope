@@ -18,13 +18,38 @@ export function generateSpaceCode(): string {
   for (let i = 0; i < CODE_LENGTH; i++) {
     raw += ALPHABET[bytes[i]! % ALPHABET.length]
   }
-  return formatSpaceCode(raw)
+  return raw
 }
 
-/** Display form: ABCD-EFGH (groups of 4). */
+function stripSeparators(input: string): string {
+  return input.trim().replace(/[\s\-_.]+/g, '')
+}
+
+function looksLikeCrockford(input: string): boolean {
+  const stripped = stripSeparators(input).toUpperCase()
+  // Only our generated codes (exact length) — legacy freeform PINs stay as typed.
+  if (stripped.length !== CODE_LENGTH) return false
+  return [...stripped].every((ch) => {
+    const mapped = AMBIGUOUS[ch] ?? ch
+    return ALPHABET.includes(mapped)
+  })
+}
+
+function normalizeCrockford(input: string): string {
+  return stripSeparators(input)
+    .toUpperCase()
+    .split('')
+    .map((ch) => AMBIGUOUS[ch] ?? ch)
+    .filter((ch) => ALPHABET.includes(ch))
+    .join('')
+}
+
+/** Display form: ABCD-EFGH for Crockford codes; otherwise the trimmed original. */
 export function formatSpaceCode(code: string): string {
-  const raw = normalizeSpaceCode(code)
-  if (!raw) return ''
+  const trimmed = code.trim()
+  if (!trimmed) return ''
+  if (!looksLikeCrockford(trimmed)) return trimmed
+  const raw = normalizeCrockford(trimmed)
   const parts: string[] = []
   for (let i = 0; i < raw.length; i += 4) {
     parts.push(raw.slice(i, i + 4))
@@ -32,28 +57,27 @@ export function formatSpaceCode(code: string): string {
   return parts.join('-')
 }
 
-/** Strip separators, uppercase, map ambiguous glyphs. */
+/**
+ * Canonical form for storage / comparison.
+ * New Crockford codes → uppercase, no separators.
+ * Legacy freeform PINs → trimmed as typed (so existing notebooks keep syncing).
+ */
 export function normalizeSpaceCode(input: string): string {
-  return input
-    .trim()
-    .toUpperCase()
-    .replace(/[\s\-_.]+/g, '')
-    .split('')
-    .map((ch) => AMBIGUOUS[ch] ?? ch)
-    .filter((ch) => ALPHABET.includes(ch) || /[A-Z0-9]/.test(ch))
-    .join('')
+  const trimmed = input.trim()
+  if (!trimmed) return ''
+  if (looksLikeCrockford(trimmed)) return normalizeCrockford(trimmed)
+  return trimmed
 }
 
 export function isValidSpaceCode(input: string): boolean {
-  const raw = normalizeSpaceCode(input)
-  return raw.length >= 4 && raw.length <= 32
+  return normalizeSpaceCode(input).length >= 4
 }
 
 export function buildInviteUrl(code: string, baseUrl = window.location.href): string {
   const url = new URL(baseUrl)
   url.search = ''
   url.hash = ''
-  url.searchParams.set('space', normalizeSpaceCode(code))
+  url.searchParams.set('space', normalizeSpaceCode(code) || code.trim())
   return url.toString()
 }
 
@@ -62,24 +86,17 @@ export function readSpaceFromUrl(href = window.location.href): string | null {
   try {
     const url = new URL(href)
     const fromQuery = url.searchParams.get('space')
-    if (fromQuery?.trim()) {
-      const normalized = normalizeSpaceCode(fromQuery)
-      return normalized || null
-    }
+    if (fromQuery?.trim()) return fromQuery.trim()
 
     const hash = url.hash.replace(/^#/, '')
     if (hash.startsWith('space=')) {
-      const value = decodeURIComponent(hash.slice('space='.length))
-      const normalized = normalizeSpaceCode(value)
-      return normalized || null
+      const value = decodeURIComponent(hash.slice('space='.length)).trim()
+      return value || null
     }
 
     const hashParams = new URLSearchParams(hash)
     const fromHash = hashParams.get('space')
-    if (fromHash?.trim()) {
-      const normalized = normalizeSpaceCode(fromHash)
-      return normalized || null
-    }
+    if (fromHash?.trim()) return fromHash.trim()
   } catch {
     /* ignore malformed URLs */
   }
@@ -105,4 +122,9 @@ export function clearSpaceFromUrl() {
   } catch {
     /* ignore */
   }
+}
+
+/** True when two codes refer to the same notebook. */
+export function spaceCodesMatch(a: string, b: string): boolean {
+  return normalizeSpaceCode(a) === normalizeSpaceCode(b) || a.trim() === b.trim()
 }

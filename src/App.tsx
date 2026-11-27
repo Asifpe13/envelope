@@ -8,6 +8,7 @@ import {
   formatSpaceCode,
   normalizeSpaceCode,
   readSpaceFromUrl,
+  spaceCodesMatch,
 } from './lib/spaceCode'
 import {
   clearSpace,
@@ -25,12 +26,8 @@ import { Home } from './screens/Home'
 import { People } from './screens/People'
 import { SpaceSetup } from './screens/SpaceSetup'
 
-function readInviteOnBoot(): string | null {
-  return readSpaceFromUrl()
-}
-
 export default function App() {
-  const inviteOnBoot = readInviteOnBoot()
+  const [inviteOnBoot] = useState(() => readSpaceFromUrl())
 
   const [spaceReady, setSpaceReady] = useState(
     () => isSpaceConfirmed() && Boolean(resolveInitialSpaceCode()),
@@ -84,7 +81,7 @@ export default function App() {
   // Deep link: ?space=CODE on boot
   useEffect(() => {
     if (!inviteOnBoot) return
-    const invite = normalizeSpaceCode(inviteOnBoot)
+    const invite = inviteOnBoot.trim()
     if (!invite) return
 
     if (!spaceReady || !spaceCode) {
@@ -93,7 +90,7 @@ export default function App() {
       return
     }
 
-    if (normalizeSpaceCode(spaceCode) === invite) {
+    if (spaceCodesMatch(spaceCode, invite)) {
       clearSpaceFromUrl()
       return
     }
