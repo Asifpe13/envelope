@@ -12,7 +12,6 @@ import {
 } from './lib/spaceCode'
 import {
   clearSpace,
-  getEnvSpacePrefill,
   getUsername,
   isSpaceConfirmed,
   resolveInitialSpaceCode,
@@ -128,11 +127,10 @@ export default function App() {
   }
 
   if (!spaceReady || !spaceCode) {
-    const joinPrefill = inviteOnBoot || getEnvSpacePrefill()
     return (
       <div className="app-shell">
         <SpaceSetup
-          initialCode={joinPrefill}
+          initialCode={inviteOnBoot || ''}
           startOnJoin={Boolean(inviteOnBoot)}
           onCreate={(code) => enterSpace(code, { showShare: true })}
           onJoin={(code) => enterSpace(code)}

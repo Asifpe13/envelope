@@ -141,34 +141,69 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.envelopes TO anon, authenti
 -- Enable Row Level Security
 ALTER TABLE public.envelopes ENABLE ROW LEVEL SECURITY;
 
+-- Space isolation: client must send header x-space-code matching the row.
+-- Without a matching header, no rows are visible or writable.
+CREATE OR REPLACE FUNCTION public.request_space_code()
+RETURNS text
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT NULLIF(
+    btrim(
+      COALESCE(
+        current_setting('request.headers', true)::json->>'x-space-code',
+        ''
+      )
+    ),
+    ''
+  );
+$$;
+
+REVOKE ALL ON FUNCTION public.request_space_code() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.request_space_code() TO anon, authenticated;
+
 -- Drop old policies if re-running this script
 DROP POLICY IF EXISTS "envelopes_select_anon" ON public.envelopes;
 DROP POLICY IF EXISTS "envelopes_insert_anon" ON public.envelopes;
 DROP POLICY IF EXISTS "envelopes_update_anon" ON public.envelopes;
 DROP POLICY IF EXISTS "envelopes_delete_anon" ON public.envelopes;
 
--- Anon key can CRUD all rows. Access control = knowing the space_code.
--- The client ALWAYS filters by space_code; never ship the service_role key.
+-- CRUD only within the notebook identified by x-space-code.
 CREATE POLICY "envelopes_select_anon"
   ON public.envelopes FOR SELECT
   TO anon, authenticated
-  USING (true);
+  USING (
+    public.request_space_code() IS NOT NULL
+    AND space_code = public.request_space_code()
+  );
 
 CREATE POLICY "envelopes_insert_anon"
   ON public.envelopes FOR INSERT
   TO anon, authenticated
-  WITH CHECK (true);
+  WITH CHECK (
+    public.request_space_code() IS NOT NULL
+    AND space_code = public.request_space_code()
+  );
 
 CREATE POLICY "envelopes_update_anon"
   ON public.envelopes FOR UPDATE
   TO anon, authenticated
-  USING (true)
-  WITH CHECK (true);
+  USING (
+    public.request_space_code() IS NOT NULL
+    AND space_code = public.request_space_code()
+  )
+  WITH CHECK (
+    public.request_space_code() IS NOT NULL
+    AND space_code = public.request_space_code()
+  );
 
 CREATE POLICY "envelopes_delete_anon"
   ON public.envelopes FOR DELETE
   TO anon, authenticated
-  USING (true);
+  USING (
+    public.request_space_code() IS NOT NULL
+    AND space_code = public.request_space_code()
+  );
 
 -- Realtime: add table to the supabase_realtime publication
 -- (safe to re-run; ignores if already added)
@@ -189,6 +224,7 @@ END $$;
 -- SECURITY NOTES
 -- 1. Use ONLY the anon (public) key in the frontend .env
 -- 2. NEVER expose the service_role key in the app or git
--- 3. Pick a non-guessable space_code (e.g. random phrase / PIN)
--- 4. Anyone with both the anon key AND your space_code can read/write
+-- 3. RLS isolates rows by x-space-code (must match envelopes.space_code)
+-- 4. Knowing anon key alone cannot list other notebooks
+-- 5. Invite links use strong generated space codes — treat like a household password
 -- ============================================================

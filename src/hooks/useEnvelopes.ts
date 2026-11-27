@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { SAMPLE_ENVELOPES } from '../lib/samples'
 import { setCachedEnvelopes, getCachedEnvelopes } from '../lib/storage'
-import { isSupabaseConfigured, supabase } from '../lib/supabase'
+import { getSupabase, isSupabaseConfigured } from '../lib/supabase'
 import type { Envelope, EnvelopeInput, SyncStatus } from '../lib/types'
 
 function sortRows(rows: Envelope[]): Envelope[] {
@@ -41,6 +41,8 @@ export function useEnvelopes(spaceCode: string | null) {
   const [status, setStatus] = useState<SyncStatus>('loading')
   const [error, setError] = useState<string | null>(null)
 
+  const client = spaceCode && isSupabaseConfigured ? getSupabase(spaceCode) : null
+
   const commit = useCallback((rows: Envelope[], nextStatus: SyncStatus) => {
     const sorted = sortRows(rows)
     setEnvelopes(sorted)
@@ -66,17 +68,17 @@ export function useEnvelopes(spaceCode: string | null) {
       return
     }
 
-    if (!isSupabaseConfigured || !supabase) {
+    if (!client) {
       const cached = getCachedEnvelopes().filter((e) => e.space_code === spaceCode)
       commit(cached, 'cache')
-      setError('Supabase לא מוגדר — עובדים במצב מקומי')
+      setError(isSupabaseConfigured ? null : 'Supabase לא מוגדר — עובדים במצב מקומי')
       return
     }
 
     setStatus('loading')
     setError(null)
     try {
-      const { data, error: qErr } = await supabase
+      const { data, error: qErr } = await client
         .from('envelopes')
         .select('*')
         .eq('space_code', spaceCode)
@@ -90,15 +92,14 @@ export function useEnvelopes(spaceCode: string | null) {
       commit(cached.length ? cached : getCachedEnvelopes(), 'cache')
       setError(e instanceof Error ? e.message : 'שגיאת סנכרון')
     }
-  }, [spaceCode, commit])
+  }, [spaceCode, client, commit])
 
   useEffect(() => {
     void refresh()
   }, [refresh])
 
   useEffect(() => {
-    const client = supabase
-    if (!spaceCode || !client || !isSupabaseConfigured) return
+    if (!spaceCode || !client) return
 
     const channel = client
       .channel(`envelopes:${spaceCode}`)
@@ -135,7 +136,7 @@ export function useEnvelopes(spaceCode: string | null) {
     return () => {
       void client.removeChannel(channel)
     }
-  }, [spaceCode])
+  }, [spaceCode, client])
 
   const toPayload = useCallback(
     (input: EnvelopeInput) => {
@@ -163,7 +164,7 @@ export function useEnvelopes(spaceCode: string | null) {
     async (input: EnvelopeInput) => {
       const payload = toPayload(input)
 
-      if (!supabase || !isSupabaseConfigured) {
+      if (!client) {
         const local: Envelope = {
           ...payload,
           id: localId(),
@@ -174,7 +175,7 @@ export function useEnvelopes(spaceCode: string | null) {
         return local
       }
 
-      const { data, error: qErr } = await supabase
+      const { data, error: qErr } = await client
         .from('envelopes')
         .insert(payload)
         .select('*')
@@ -184,7 +185,7 @@ export function useEnvelopes(spaceCode: string | null) {
       patchLocal((prev) => [row, ...prev.filter((e) => e.id !== row.id)], 'synced')
       return row
     },
-    [toPayload, patchLocal],
+    [toPayload, patchLocal, client],
   )
 
   const updateEnvelope = useCallback(
@@ -207,7 +208,7 @@ export function useEnvelopes(spaceCode: string | null) {
       }
       if (patch.notes !== undefined) payload.notes = patch.notes?.trim() || null
 
-      if (!supabase || !isSupabaseConfigured) {
+      if (!client) {
         patchLocal(
           (prev) => prev.map((e) => (e.id === id ? normalizeRow({ ...e, ...payload }) : e)),
           'cache',
@@ -215,7 +216,7 @@ export function useEnvelopes(spaceCode: string | null) {
         return
       }
 
-      const { data, error: qErr } = await supabase
+      const { data, error: qErr } = await client
         .from('envelopes')
         .update(payload)
         .eq('id', id)
@@ -229,19 +230,19 @@ export function useEnvelopes(spaceCode: string | null) {
         'synced',
       )
     },
-    [spaceCode, patchLocal],
+    [spaceCode, patchLocal, client],
   )
 
   const deleteEnvelope = useCallback(
     async (id: string) => {
       if (!spaceCode) throw new Error('אין קוד פנקס')
 
-      if (!supabase || !isSupabaseConfigured) {
+      if (!client) {
         patchLocal((prev) => prev.filter((e) => e.id !== id), 'cache')
         return
       }
 
-      const { error: qErr } = await supabase
+      const { error: qErr } = await client
         .from('envelopes')
         .delete()
         .eq('id', id)
@@ -249,18 +250,17 @@ export function useEnvelopes(spaceCode: string | null) {
       if (qErr) throw qErr
       patchLocal((prev) => prev.filter((e) => e.id !== id), 'synced')
     },
-    [spaceCode, patchLocal],
+    [spaceCode, patchLocal, client],
   )
 
   const loadSamples = useCallback(async () => {
     if (!spaceCode) throw new Error('אין קוד פנקס')
     const payloads = SAMPLE_ENVELOPES.map((s) => toPayload(s))
 
-    if (!supabase || !isSupabaseConfigured) {
+    if (!client) {
       const locals: Envelope[] = payloads.map((payload, i) => ({
         ...payload,
         id: localId(),
-        // stagger timestamps so sort order matches sample order
         created_at: new Date(Date.now() - i).toISOString(),
         amount_received: payload.amount_received,
       }))
@@ -268,14 +268,11 @@ export function useEnvelopes(spaceCode: string | null) {
       return
     }
 
-    const { data, error: qErr } = await supabase
-      .from('envelopes')
-      .insert(payloads)
-      .select('*')
+    const { data, error: qErr } = await client.from('envelopes').insert(payloads).select('*')
     if (qErr) throw qErr
     const rows = (data ?? []).map((r) => normalizeRow(r as Record<string, unknown>))
     patchLocal((prev) => [...rows, ...prev], 'synced')
-  }, [spaceCode, toPayload, patchLocal])
+  }, [spaceCode, toPayload, patchLocal, client])
 
   const stats = useMemo(() => {
     const totalGiven = envelopes.reduce((s, e) => s + (Number(e.amount_given) || 0), 0)
