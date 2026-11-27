@@ -8,14 +8,17 @@ export function formatSyncError(err: unknown): string {
         : 'שגיאה לא ידועה'
 
   const lower = raw.toLowerCase()
+  const name = err instanceof Error ? err.name.toLowerCase() : ''
 
   if (
     lower.includes('failed to fetch') ||
     lower.includes('networkerror') ||
     lower.includes('load failed') ||
-    lower.includes('network request failed')
+    lower.includes('network request failed') ||
+    lower.includes('abort') ||
+    name.includes('abort')
   ) {
-    return 'אין חיבור ל־Supabase (Failed to fetch). בדקו רשת / חוסם פרסומות, ודאו שהפרויקט פעיל, והפעילו Anonymous Sign-Ins.'
+    return 'אין חיבור ל־Supabase מהמכשיר (Failed to fetch). כבו חוסם פרסומות/VPN, בדקו רשת סלולר/Wi‑Fi, לחצו «נסה להתחבר שוב». אם Anonymous כבר דולק — זו בעיית רשת למכשיר, לא הגדרת SQL.'
   }
 
   if (

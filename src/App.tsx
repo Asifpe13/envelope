@@ -11,7 +11,7 @@ import {
   readSpaceFromUrl,
   spaceCodesMatch,
 } from './lib/spaceCode'
-import { createSpaceRemote, joinSpaceRemote } from './lib/spaces'
+import { createSpaceRemote, ensureSpaceMembership, joinSpaceRemote } from './lib/spaces'
 import {
   clearSpace,
   getUsername,
@@ -20,7 +20,12 @@ import {
   setSpaceCode,
   setUsername,
 } from './lib/storage'
-import { ensureAnonymousSession, isSupabaseConfigured } from './lib/supabase'
+import {
+  ensureAnonymousSession,
+  isSupabaseConfigured,
+  probeSupabase,
+  supabaseHost,
+} from './lib/supabase'
 import type { Envelope, EnvelopeInput, Screen } from './lib/types'
 import { EnvelopeForm } from './screens/EnvelopeForm'
 import { EnvelopeList } from './screens/EnvelopeList'
@@ -32,7 +37,9 @@ export default function App() {
   const [inviteOnBoot] = useState(() => readSpaceFromUrl())
   const [authReady, setAuthReady] = useState(!isSupabaseConfigured)
   const [authError, setAuthError] = useState<string | null>(null)
+  const [cloudOk, setCloudOk] = useState(false)
   const [localOnly, setLocalOnly] = useState(false)
+  const [authBusy, setAuthBusy] = useState(false)
 
   const [spaceReady, setSpaceReady] = useState(
     () => isSpaceConfirmed() && Boolean(resolveInitialSpaceCode()),
@@ -43,11 +50,13 @@ export default function App() {
   const [username, setUsernameState] = useState(getUsername)
   const [screen, setScreen] = useState<Screen>('home')
   const [editing, setEditing] = useState<Envelope | null>(null)
-  const [returnTo, setReturnTo] = useState<Screen>('list')
+  const [returnTo, setReturnTo] = useState<Screen>('home')
   const [shareOpen, setShareOpen] = useState(false)
   const [shareTitle, setShareTitle] = useState('שתפו את הפנקס')
   const [pendingInvite, setPendingInvite] = useState<string | null>(null)
   const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false)
+
+  const cloudSync = !localOnly && cloudOk
 
   const {
     envelopes,
@@ -59,28 +68,45 @@ export default function App() {
     updateEnvelope,
     deleteEnvelope,
     loadSamples,
-  } = useEnvelopes(spaceCode, !localOnly && !authError)
+  } = useEnvelopes(spaceCode, cloudSync)
 
   useEffect(() => {
     document.documentElement.lang = 'he'
     document.documentElement.dir = 'rtl'
   }, [])
 
-  useEffect(() => {
+  const connectCloud = useCallback(async () => {
     if (!isSupabaseConfigured) {
       setAuthReady(true)
+      setCloudOk(false)
       return
     }
-    void ensureAnonymousSession()
-      .then(() => {
-        setAuthReady(true)
-        setAuthError(null)
-      })
-      .catch((e) => {
-        setAuthReady(true)
-        setAuthError(e instanceof Error ? e.message : 'שגיאת התחברות')
-      })
+    setAuthBusy(true)
+    try {
+      const probe = await probeSupabase()
+      if (!probe.ok) {
+        throw new Error(probe.detail)
+      }
+      await ensureAnonymousSession()
+      const code = resolveInitialSpaceCode()
+      if (code) {
+        await ensureSpaceMembership(code)
+      }
+      setAuthError(null)
+      setCloudOk(true)
+      setLocalOnly(false)
+    } catch (e) {
+      setCloudOk(false)
+      setAuthError(e instanceof Error ? e.message : 'שגיאת התחברות')
+    } finally {
+      setAuthBusy(false)
+      setAuthReady(true)
+    }
   }, [])
+
+  useEffect(() => {
+    void connectCloud()
+  }, [connectCloud])
 
   const enterSpace = useCallback((code: string, opts?: { showShare?: boolean }) => {
     const normalized = normalizeSpaceCode(code)
@@ -96,26 +122,26 @@ export default function App() {
 
   const handleCreate = useCallback(
     async (code: string) => {
-      if (localOnly || authError) {
+      if (localOnly || !cloudOk) {
         enterSpace(normalizeSpaceCode(code), { showShare: true })
         return
       }
       const registered = await createSpaceRemote(code)
       enterSpace(registered, { showShare: true })
     },
-    [enterSpace, localOnly, authError],
+    [enterSpace, localOnly, cloudOk],
   )
 
   const handleJoin = useCallback(
     async (code: string) => {
-      if (localOnly || authError) {
+      if (localOnly || !cloudOk) {
         enterSpace(normalizeSpaceCode(code))
         return
       }
       const joined = await joinSpaceRemote(code)
       enterSpace(joined)
     },
-    [enterSpace, localOnly, authError],
+    [enterSpace, localOnly, cloudOk],
   )
 
   const openShare = useCallback(() => {
@@ -171,6 +197,17 @@ export default function App() {
     setScreen('home')
   }
 
+  const setupBanner =
+    authError && !localOnly ? (
+      <AuthSetupBanner
+        message={authError}
+        host={supabaseHost}
+        busy={authBusy}
+        onRetry={() => void connectCloud()}
+        onContinueLocal={() => setLocalOnly(true)}
+      />
+    ) : null
+
   if (!authReady) {
     return (
       <div className="app-shell flex min-h-dvh items-center justify-center px-5">
@@ -182,12 +219,7 @@ export default function App() {
   if (!spaceReady || !spaceCode) {
     return (
       <div className="app-shell">
-        {authError && !localOnly && (
-          <AuthSetupBanner
-            message={authError}
-            onContinueLocal={() => setLocalOnly(true)}
-          />
-        )}
+        {setupBanner}
         {localOnly && (
           <p className="bg-stone-100 px-4 py-2 text-center text-xs text-forest/70">
             מצב מקומי — הנתונים נשמרים רק במכשיר הזה עד ש־Supabase יופעל
@@ -207,13 +239,21 @@ export default function App() {
     <div className="app-shell">
       <div className="app-frame">
         <main className="min-h-0 flex-1 overflow-y-auto">
-          {authError && !localOnly && status !== 'synced' && (
-            <AuthSetupBanner message={authError || error || ''} />
-          )}
+          {setupBanner}
           {!authError && error && status !== 'synced' && (
-            <p className="bg-amber-50 px-4 py-2 text-center text-[11px] text-amber-900">
-              {error}
-            </p>
+            <div className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-amber-950">
+              <p className="text-center text-[11px]">{error}</p>
+              <div className="mt-2 flex justify-center">
+                <button
+                  type="button"
+                  disabled={authBusy}
+                  onClick={() => void connectCloud()}
+                  className="rounded-xl bg-forest px-3 py-1.5 text-xs font-semibold text-cream disabled:opacity-60"
+                >
+                  {authBusy ? 'בודקים…' : 'נסה שוב'}
+                </button>
+              </div>
+            </div>
           )}
           {localOnly && (
             <p className="bg-stone-100 px-4 py-2 text-center text-xs text-forest/70">
