@@ -34,7 +34,7 @@ export function AuthSetupBanner({
       <p className="mt-1 text-sm leading-relaxed">{message}</p>
       {host && (
         <p className="mt-2 text-[11px] leading-relaxed text-amber-900/75">
-          כתובת השרת:{' '}
+          חיבור דרך:{' '}
           <Ltr>{host}</Ltr>
         </p>
       )}
@@ -70,10 +70,7 @@ export function AuthSetupBanner({
           <Ltr>supabase/schema.sql</Ltr>
           {' '}ולחצו הרצה.
         </li>
-        <li>
-          במכשיר: כבו לזמן קצר חוסם פרסומות או VPN, בדקו רשת אחרת (סלולר או Wi‑Fi),
-          ואז לחצו «נסו להתחבר שוב».
-        </li>
+        <li>לחצו «נסו להתחבר שוב». אם עדיין נכשל — רעננו את העמוד אחרי עדכון האתר.</li>
       </ol>
 
       <div className="mt-4 flex flex-wrap items-center justify-start gap-3">

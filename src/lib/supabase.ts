@@ -1,21 +1,30 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { formatSyncError } from './errors'
 
-const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
+const configuredUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 
-export const isSupabaseConfigured = Boolean(url && anon && !url.includes('YOUR_PROJECT'))
-export const supabaseHost = url ? (() => {
-  try {
-    return new URL(url).host
-  } catch {
-    return url
-  }
-})() : null
+/**
+ * Browser traffic goes through same-origin `/sb` so mobile ad-blockers that
+ * block `*.supabase.co` cannot break sync. Vercel + Vite proxy to the project.
+ */
+function resolveSupabaseUrl(): string | undefined {
+  if (!configuredUrl || configuredUrl.includes('YOUR_PROJECT')) return undefined
+  if (typeof window === 'undefined') return configuredUrl
+  return `${window.location.origin}/sb`
+}
+
+export const isSupabaseConfigured = Boolean(
+  configuredUrl && anon && !configuredUrl.includes('YOUR_PROJECT'),
+)
+
+export const supabaseHost =
+  typeof window !== 'undefined' ? window.location.host : configuredUrl ?? null
 
 let client: SupabaseClient | null = null
 
 export function getSupabase(): SupabaseClient | null {
+  const url = resolveSupabaseUrl()
   if (!isSupabaseConfigured || !url || !anon) return null
   if (!client) {
     client = createClient(url, anon, {
@@ -26,10 +35,15 @@ export function getSupabase(): SupabaseClient | null {
         // Avoid navigator.locks deadlocks on some mobile browsers
         lock: async <R>(_name: string, _acquireTimeout: number, fn: () => Promise<R>) => fn(),
       },
+      realtime: {
+        // Realtime websockets are optional; REST sync is enough.
+        // Same-origin proxy may not upgrade WS — keep REST as source of truth.
+        params: { apikey: anon },
+      },
       global: {
         fetch: (input, init) => {
           const ctrl = new AbortController()
-          const timer = setTimeout(() => ctrl.abort(), 15_000)
+          const timer = setTimeout(() => ctrl.abort(), 20_000)
           const signal = init?.signal
           if (signal) {
             if (signal.aborted) ctrl.abort()
@@ -96,18 +110,19 @@ export async function ensureAnonymousSession(): Promise<void> {
   throw new Error(formatSyncError(lastError))
 }
 
-/** Quick reachability check used by the retry UI. */
+/** Quick reachability check used by the retry UI (same-origin `/sb`). */
 export async function probeSupabase(): Promise<{ ok: boolean; detail: string }> {
+  const url = resolveSupabaseUrl()
   if (!url || !anon) return { ok: false, detail: 'חסרים משתני סביבה' }
   const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), 10_000)
+  const timer = setTimeout(() => ctrl.abort(), 12_000)
   try {
-    const res = await fetch(`${url}/auth/v1/health`, {
+    const res = await fetch(`${url}/auth/v1/settings`, {
       headers: { apikey: anon, Authorization: `Bearer ${anon}` },
       signal: ctrl.signal,
     })
-    if (!res.ok) return { ok: false, detail: `health HTTP ${res.status}` }
-    return { ok: true, detail: supabaseHost ?? url }
+    if (!res.ok) return { ok: false, detail: `בדיקת חיבור נכשלה (קוד ${res.status})` }
+    return { ok: true, detail: url }
   } catch (e) {
     return {
       ok: false,
