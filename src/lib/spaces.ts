@@ -1,3 +1,4 @@
+import { formatSyncError } from './errors'
 import { normalizeSpaceCode } from './spaceCode'
 import { ensureAnonymousSession, getSupabase, isSupabaseConfigured } from './supabase'
 
@@ -15,9 +16,13 @@ export async function createSpaceRemote(code: string): Promise<string> {
   const sb = await requireClient()
   if (!sb) return normalized
 
-  const { data, error } = await sb.rpc('create_space', { p_code: normalized })
-  if (error) throw new Error(error.message)
-  return String(data ?? normalized)
+  try {
+    const { data, error } = await sb.rpc('create_space', { p_code: normalized })
+    if (error) throw error
+    return String(data ?? normalized)
+  } catch (e) {
+    throw new Error(formatSyncError(e))
+  }
 }
 
 /** Join an existing notebook as the current signed-in device. */
@@ -26,7 +31,11 @@ export async function joinSpaceRemote(code: string): Promise<string> {
   const sb = await requireClient()
   if (!sb) return normalized
 
-  const { data, error } = await sb.rpc('join_space', { p_code: normalized })
-  if (error) throw new Error(error.message)
-  return String(data ?? normalized)
+  try {
+    const { data, error } = await sb.rpc('join_space', { p_code: normalized })
+    if (error) throw error
+    return String(data ?? normalized)
+  } catch (e) {
+    throw new Error(formatSyncError(e))
+  }
 }

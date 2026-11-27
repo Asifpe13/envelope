@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { AuthSetupBanner } from './components/AuthSetupBanner'
 import { BottomNav } from './components/BottomNav'
 import { ConfirmModal } from './components/ConfirmModal'
 import { ShareSpaceModal } from './components/ShareSpaceModal'
@@ -31,6 +32,7 @@ export default function App() {
   const [inviteOnBoot] = useState(() => readSpaceFromUrl())
   const [authReady, setAuthReady] = useState(!isSupabaseConfigured)
   const [authError, setAuthError] = useState<string | null>(null)
+  const [localOnly, setLocalOnly] = useState(false)
 
   const [spaceReady, setSpaceReady] = useState(
     () => isSpaceConfirmed() && Boolean(resolveInitialSpaceCode()),
@@ -57,7 +59,7 @@ export default function App() {
     updateEnvelope,
     deleteEnvelope,
     loadSamples,
-  } = useEnvelopes(spaceCode)
+  } = useEnvelopes(spaceCode, !localOnly && !authError)
 
   useEffect(() => {
     document.documentElement.lang = 'he'
@@ -94,18 +96,26 @@ export default function App() {
 
   const handleCreate = useCallback(
     async (code: string) => {
+      if (localOnly || authError) {
+        enterSpace(normalizeSpaceCode(code), { showShare: true })
+        return
+      }
       const registered = await createSpaceRemote(code)
       enterSpace(registered, { showShare: true })
     },
-    [enterSpace],
+    [enterSpace, localOnly, authError],
   )
 
   const handleJoin = useCallback(
     async (code: string) => {
+      if (localOnly || authError) {
+        enterSpace(normalizeSpaceCode(code))
+        return
+      }
       const joined = await joinSpaceRemote(code)
       enterSpace(joined)
     },
-    [enterSpace],
+    [enterSpace, localOnly, authError],
   )
 
   const openShare = useCallback(() => {
@@ -172,9 +182,15 @@ export default function App() {
   if (!spaceReady || !spaceCode) {
     return (
       <div className="app-shell">
-        {authError && (
-          <p className="bg-amber-50 px-4 py-2 text-center text-[11px] text-amber-900">
-            {authError}
+        {authError && !localOnly && (
+          <AuthSetupBanner
+            message={authError}
+            onContinueLocal={() => setLocalOnly(true)}
+          />
+        )}
+        {localOnly && (
+          <p className="bg-stone-100 px-4 py-2 text-center text-xs text-forest/70">
+            מצב מקומי — הנתונים נשמרים רק במכשיר הזה עד ש־Supabase יופעל
           </p>
         )}
         <SpaceSetup
@@ -191,9 +207,17 @@ export default function App() {
     <div className="app-shell">
       <div className="app-frame">
         <main className="min-h-0 flex-1 overflow-y-auto">
-          {(error || authError) && status !== 'synced' && (
+          {authError && !localOnly && status !== 'synced' && (
+            <AuthSetupBanner message={authError || error || ''} />
+          )}
+          {!authError && error && status !== 'synced' && (
             <p className="bg-amber-50 px-4 py-2 text-center text-[11px] text-amber-900">
-              {error || authError}
+              {error}
+            </p>
+          )}
+          {localOnly && (
+            <p className="bg-stone-100 px-4 py-2 text-center text-xs text-forest/70">
+              מצב מקומי — בלי סנכרון ענן
             </p>
           )}
 

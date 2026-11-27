@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { formatSyncError } from './errors'
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
@@ -26,15 +27,13 @@ export async function ensureAnonymousSession(): Promise<void> {
   const sb = getSupabase()
   if (!sb) return
 
-  const { data: existing } = await sb.auth.getSession()
-  if (existing.session) return
+  try {
+    const { data: existing } = await sb.auth.getSession()
+    if (existing.session) return
 
-  const { error } = await sb.auth.signInAnonymously()
-  if (error) {
-    throw new Error(
-      error.message.includes('anonymous') || error.status === 422
-        ? 'יש להפעיל Anonymous Sign-Ins ב־Supabase (Authentication → Providers)'
-        : error.message,
-    )
+    const { error } = await sb.auth.signInAnonymously()
+    if (error) throw error
+  } catch (e) {
+    throw new Error(formatSyncError(e))
   }
 }
