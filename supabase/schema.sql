@@ -182,14 +182,17 @@ DROP POLICY IF EXISTS "envelopes_update_anon" ON public.envelopes;
 DROP POLICY IF EXISTS "envelopes_delete_anon" ON public.envelopes;
 DROP FUNCTION IF EXISTS public.request_space_code();
 
--- Grants: data only for authenticated sessions (anon key alone is not enough)
+-- Grants: envelope CRUD for authenticated members only.
+-- Creating/joining notebooks is RPC-only (no direct INSERT on spaces/members).
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
-GRANT SELECT, INSERT ON TABLE public.spaces TO authenticated;
-GRANT SELECT, INSERT ON TABLE public.space_members TO authenticated;
+GRANT SELECT ON TABLE public.spaces TO authenticated;
+GRANT SELECT ON TABLE public.space_members TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.envelopes TO authenticated;
 REVOKE ALL ON TABLE public.envelopes FROM anon;
 REVOKE ALL ON TABLE public.spaces FROM anon;
 REVOKE ALL ON TABLE public.space_members FROM anon;
+REVOKE INSERT, UPDATE, DELETE ON TABLE public.spaces FROM authenticated;
+REVOKE INSERT, UPDATE, DELETE ON TABLE public.space_members FROM authenticated;
 
 ALTER TABLE public.spaces ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.space_members ENABLE ROW LEVEL SECURITY;
@@ -213,17 +216,11 @@ CREATE POLICY "spaces_select_member"
     )
   );
 
-CREATE POLICY "spaces_insert_auth"
-  ON public.spaces FOR INSERT TO authenticated
-  WITH CHECK (auth.uid() IS NOT NULL AND created_by = auth.uid());
+-- No INSERT policy on spaces / space_members — only SECURITY DEFINER RPCs may write.
 
 CREATE POLICY "members_select_self"
   ON public.space_members FOR SELECT TO authenticated
   USING (user_id = auth.uid());
-
-CREATE POLICY "members_insert_self"
-  ON public.space_members FOR INSERT TO authenticated
-  WITH CHECK (user_id = auth.uid());
 
 CREATE POLICY "envelopes_select_member"
   ON public.envelopes FOR SELECT TO authenticated
@@ -269,7 +266,7 @@ CREATE POLICY "envelopes_delete_member"
     )
   );
 
--- RPCs: create / join notebook (require signed-in user, including anonymous)
+-- RPCs: only path to create a notebook or grant membership
 CREATE OR REPLACE FUNCTION public.create_space(p_code text)
 RETURNS text
 LANGUAGE plpgsql
@@ -278,7 +275,7 @@ SET search_path = public
 AS $$
 DECLARE
   uid uuid := auth.uid();
-  normalized text := upper(btrim(p_code));
+  normalized text := upper(btrim(regexp_replace(p_code, '[\s\-_.]+', '', 'g')));
 BEGIN
   IF uid IS NULL THEN
     RAISE EXCEPTION 'Not authenticated';
@@ -286,18 +283,15 @@ BEGIN
   IF char_length(normalized) < 8 THEN
     RAISE EXCEPTION 'Space code too short';
   END IF;
-
-  INSERT INTO public.spaces (code, created_by)
-  VALUES (normalized, uid)
-  ON CONFLICT (code) DO NOTHING;
-
-  IF NOT EXISTS (SELECT 1 FROM public.spaces WHERE code = normalized) THEN
-    RAISE EXCEPTION 'Could not create space';
+  IF EXISTS (SELECT 1 FROM public.spaces WHERE code = normalized) THEN
+    RAISE EXCEPTION 'Space already exists';
   END IF;
 
+  INSERT INTO public.spaces (code, created_by)
+  VALUES (normalized, uid);
+
   INSERT INTO public.space_members (space_code, user_id)
-  VALUES (normalized, uid)
-  ON CONFLICT DO NOTHING;
+  VALUES (normalized, uid);
 
   RETURN normalized;
 END;
@@ -352,7 +346,9 @@ END $$;
 -- ============================================================
 -- SECURITY
 -- 1. Enable Anonymous auth in the Supabase dashboard
--- 2. Clients must signInAnonymously (or other auth) before data access
--- 3. RLS: only space_members can read/write that notebook's envelopes
--- 4. Never ship service_role; anon key alone cannot query envelopes
+-- 2. Clients must signInAnonymously before data access
+-- 3. Membership ONLY via create_space / join_space RPCs (no direct INSERT)
+-- 4. create_space fails if the code already exists (no silent join)
+-- 5. RLS: only space_members can read/write that notebook's envelopes
+-- 6. Never ship service_role
 -- ============================================================
