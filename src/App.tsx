@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
 import { BottomNav } from './components/BottomNav'
+import { ConfirmModal } from './components/ConfirmModal'
+import { ShareSpaceModal } from './components/ShareSpaceModal'
 import { useEnvelopes } from './hooks/useEnvelopes'
 import {
+  clearSpaceFromUrl,
+  formatSpaceCode,
+  normalizeSpaceCode,
+  readSpaceFromUrl,
+} from './lib/spaceCode'
+import {
+  clearSpace,
+  getEnvSpacePrefill,
   getUsername,
   isSpaceConfirmed,
   resolveInitialSpaceCode,
@@ -15,7 +25,13 @@ import { Home } from './screens/Home'
 import { People } from './screens/People'
 import { SpaceSetup } from './screens/SpaceSetup'
 
+function readInviteOnBoot(): string | null {
+  return readSpaceFromUrl()
+}
+
 export default function App() {
+  const inviteOnBoot = readInviteOnBoot()
+
   const [spaceReady, setSpaceReady] = useState(
     () => isSpaceConfirmed() && Boolean(resolveInitialSpaceCode()),
   )
@@ -26,6 +42,10 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>('home')
   const [editing, setEditing] = useState<Envelope | null>(null)
   const [returnTo, setReturnTo] = useState<Screen>('list')
+  const [shareOpen, setShareOpen] = useState(false)
+  const [shareTitle, setShareTitle] = useState('שתפו את הפנקס')
+  const [pendingInvite, setPendingInvite] = useState<string | null>(null)
+  const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false)
 
   const {
     envelopes,
@@ -43,6 +63,44 @@ export default function App() {
     document.documentElement.lang = 'he'
     document.documentElement.dir = 'rtl'
   }, [])
+
+  const enterSpace = useCallback((code: string, opts?: { showShare?: boolean }) => {
+    const normalized = normalizeSpaceCode(code)
+    setSpaceCode(normalized)
+    setSpaceCodeState(normalized)
+    setSpaceReady(true)
+    clearSpaceFromUrl()
+    if (opts?.showShare) {
+      setShareTitle('הפנקס מוכן — שתפו')
+      setShareOpen(true)
+    }
+  }, [])
+
+  const openShare = useCallback(() => {
+    setShareTitle('שתפו את הפנקס')
+    setShareOpen(true)
+  }, [])
+
+  // Deep link: ?space=CODE on boot
+  useEffect(() => {
+    if (!inviteOnBoot) return
+    const invite = normalizeSpaceCode(inviteOnBoot)
+    if (!invite) return
+
+    if (!spaceReady || !spaceCode) {
+      // Auto-join when there is no existing notebook
+      enterSpace(invite)
+      return
+    }
+
+    if (normalizeSpaceCode(spaceCode) === invite) {
+      clearSpaceFromUrl()
+      return
+    }
+
+    // Switching notebooks — ask first
+    setPendingInvite(invite)
+  }, [inviteOnBoot, spaceReady, spaceCode, enterSpace])
 
   const openForm = useCallback((target: Envelope | null, back: Screen) => {
     setEditing(target)
@@ -63,16 +121,24 @@ export default function App() {
     [editing, updateEnvelope, addEnvelope, returnTo],
   )
 
+  function handleLeaveSpace() {
+    clearSpace()
+    setSpaceCodeState(null)
+    setSpaceReady(false)
+    setShareOpen(false)
+    setLeaveConfirmOpen(false)
+    setScreen('home')
+  }
+
   if (!spaceReady || !spaceCode) {
+    const joinPrefill = inviteOnBoot || getEnvSpacePrefill()
     return (
       <div className="app-shell">
         <SpaceSetup
-          initialCode={resolveInitialSpaceCode()}
-          onConfirm={(code) => {
-            setSpaceCode(code)
-            setSpaceCodeState(code)
-            setSpaceReady(true)
-          }}
+          initialCode={joinPrefill}
+          startOnJoin={Boolean(inviteOnBoot)}
+          onCreate={(code) => enterSpace(code, { showShare: true })}
+          onJoin={(code) => enterSpace(code)}
         />
       </div>
     )
@@ -91,6 +157,7 @@ export default function App() {
           {screen === 'home' && (
             <Home
               username={username}
+              spaceCode={spaceCode}
               onEditName={() => {
                 const next = window.prompt('איך לקרוא לכם במכשיר הזה?', username)
                 if (next != null && next.trim()) {
@@ -98,6 +165,8 @@ export default function App() {
                   setUsernameState(next.trim())
                 }
               }}
+              onShareSpace={openShare}
+              onLeaveSpace={() => setLeaveConfirmOpen(true)}
               status={status}
               totalGiven={stats.totalGiven}
               eventCount={stats.eventCount}
@@ -145,6 +214,43 @@ export default function App() {
           />
         )}
       </div>
+
+      <ShareSpaceModal
+        open={shareOpen}
+        spaceCode={spaceCode}
+        title={shareTitle}
+        onClose={() => setShareOpen(false)}
+      />
+
+      <ConfirmModal
+        open={leaveConfirmOpen}
+        title="לעזוב את הפנקס?"
+        message="המכשיר הזה יצא מהפנקס הנוכחי. הנתונים בענן נשארים — תוכלו ליצור פנקס חדש או להצטרף עם קוד אחר."
+        confirmLabel="עזיבה"
+        onConfirm={handleLeaveSpace}
+        onCancel={() => setLeaveConfirmOpen(false)}
+      />
+
+      <ConfirmModal
+        open={Boolean(pendingInvite)}
+        title="להחליף פנקס?"
+        message={
+          pendingInvite
+            ? `פתחתם קישור הזמנה לפנקס ${formatSpaceCode(pendingInvite)}. להחליף את הפנקס הנוכחי במכשיר הזה?`
+            : ''
+        }
+        confirmLabel="החלפה"
+        onConfirm={() => {
+          if (pendingInvite) {
+            enterSpace(pendingInvite)
+            setPendingInvite(null)
+          }
+        }}
+        onCancel={() => {
+          setPendingInvite(null)
+          clearSpaceFromUrl()
+        }}
+      />
     </div>
   )
 }

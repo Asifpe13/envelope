@@ -26,7 +26,8 @@ Safe to re-run.
 ```env
 VITE_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
 VITE_SUPABASE_ANON_KEY=eyJhbGciOi...
-VITE_DEFAULT_SPACE_CODE=our-shared-pin
+# Optional only — not part of normal onboarding
+# VITE_DEFAULT_SPACE_CODE=
 ```
 
 Copy from Supabase → **Project Settings → API** (Project URL + **anon public** key). Never put `service_role` in the app.
@@ -38,7 +39,14 @@ npm install
 npm run dev
 ```
 
-On first open, confirm the **קוד פנקס משותף**. Both phones must use the **same** code.
+### Sharing a notebook (create → invite)
+
+1. On first launch, tap **צור פנקס חדש** — the app generates a strong space code (e.g. `ABCD-EFGH`)
+2. Use the share sheet: **העתק קישור הזמנה**, **העתק קוד**, or the system Share button
+3. Partner opens the invite link (`?space=CODE`) or taps **הצטרף לפנקס** and enters the code
+4. Both phones sync the same notebook via Supabase — no login
+
+From Home you can reopen **שתף פנקס**, or leave and create/join another notebook.
 
 ## Deploy
 
@@ -47,7 +55,7 @@ On first open, confirm the **קוד פנקס משותף**. Both phones must use 
 Cursor `publish-app` cannot bind `VITE_*` secrets (reserved). Use Vercel:
 
 1. Import the GitHub repo at [vercel.com](https://vercel.com), framework **Vite**
-2. Add the same three env vars as in `.env`
+2. Add `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` (optional: `VITE_DEFAULT_SPACE_CODE`)
 3. Deploy
 
 Or claim a temporary agent deploy if one was provided in chat (expires ~60 minutes unless claimed).
@@ -59,11 +67,12 @@ Or claim a temporary agent deploy if one was provided in chat (expires ~60 minut
 
 ## How sync works
 
-- Both devices store `space_code` in LocalStorage
+- Creating or joining a space stores `space_code` in LocalStorage
 - All reads/writes filter by that `space_code`
+- Invite links use `?space=CODE` (deep-linked on boot)
 - Supabase Realtime pushes live changes; LocalStorage caches for poor reception
 - Use **גיבוי JSON / CSV** for offline backup
 
 ## Security
 
-Anyone who knows your **anon key** (public by design) **and** your `space_code` can read/write that notebook. Use a non-guessable shared code.
+Anyone who knows your **anon key** (public by design) **and** your `space_code` can read/write that notebook. The app generates non-guessable Crockford codes; treat the invite link like a household password.

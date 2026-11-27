@@ -1,11 +1,15 @@
-import { Download, Pencil, Plus, Wallet } from 'lucide-react'
+import { Download, LogOut, Pencil, Plus, Share2, Wallet } from 'lucide-react'
 import { SyncBadge } from '../components/SyncBadge'
 import { downloadText, envelopesToCsv, formatIls, formatNet } from '../lib/format'
+import { formatSpaceCode } from '../lib/spaceCode'
 import type { Envelope, SyncStatus } from '../lib/types'
 
 interface Props {
   username: string
+  spaceCode: string
   onEditName: () => void
+  onShareSpace: () => void
+  onLeaveSpace: () => void
   status: SyncStatus
   totalGiven: number
   eventCount: number
@@ -18,7 +22,10 @@ interface Props {
 
 export function Home({
   username,
+  spaceCode,
   onEditName,
+  onShareSpace,
+  onLeaveSpace,
   status,
   totalGiven,
   eventCount,
@@ -57,11 +64,21 @@ export function Home({
               >
                 {username}
                 <Pencil size={14} className="text-forest/40" />
-              </button>{' '}
-              <span aria-hidden>👋</span>
+              </button>
             </h1>
           </div>
-          <SyncBadge status={status} />
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onShareSpace}
+              className="flex h-9 w-9 items-center justify-center rounded-xl bg-forest/8 text-forest transition active:scale-95"
+              aria-label="שתף פנקס"
+              title="שתף פנקס"
+            >
+              <Share2 size={16} />
+            </button>
+            <SyncBadge status={status} />
+          </div>
         </div>
       </header>
 
@@ -118,11 +135,30 @@ export function Home({
         </button>
         <button
           type="button"
+          onClick={onShareSpace}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl border border-gold/35 bg-gold/10 py-3 text-sm font-semibold text-forest transition active:scale-[0.98]"
+        >
+          <Share2 size={16} className="text-gold-dark" />
+          שתף פנקס
+          <span className="font-display text-xs font-medium tracking-wider text-forest/45" dir="ltr">
+            {formatSpaceCode(spaceCode)}
+          </span>
+        </button>
+        <button
+          type="button"
           onClick={exportBackup}
           className="flex w-full items-center justify-center gap-2 py-2 text-sm font-medium text-forest/50"
         >
           <Download size={14} />
           גיבוי JSON / CSV
+        </button>
+        <button
+          type="button"
+          onClick={onLeaveSpace}
+          className="flex w-full items-center justify-center gap-2 py-1.5 text-xs font-medium text-forest/35 transition hover:text-rose-700"
+        >
+          <LogOut size={12} />
+          עזיבת פנקס / יצירת חדש
         </button>
       </section>
     </div>
