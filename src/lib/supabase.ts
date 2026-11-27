@@ -7,6 +7,9 @@ const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 /**
  * Browser traffic goes through same-origin `/sb` so mobile ad-blockers that
  * block `*.supabase.co` cannot break sync. Vercel + Vite proxy to the project.
+ *
+ * Vercel HTTP rewrites cannot upgrade WebSockets, so Realtime must stay off
+ * while the client URL is same-origin `/sb` (REST remains the source of truth).
  */
 function resolveSupabaseUrl(): string | undefined {
   if (!configuredUrl || configuredUrl.includes('YOUR_PROJECT')) return undefined
@@ -17,6 +20,18 @@ function resolveSupabaseUrl(): string | undefined {
 export const isSupabaseConfigured = Boolean(
   configuredUrl && anon && !configuredUrl.includes('YOUR_PROJECT'),
 )
+
+/** True when the browser talks to Supabase via same-origin `/sb` (no WS proxy). */
+export function isSupabaseProxied(): boolean {
+  if (typeof window === 'undefined') return false
+  const url = resolveSupabaseUrl()
+  return Boolean(url?.startsWith(`${window.location.origin}/sb`))
+}
+
+/** Realtime only when pointing at Supabase directly (not the Vercel `/sb` rewrite). */
+export function isRealtimeEnabled(): boolean {
+  return isSupabaseConfigured && !isSupabaseProxied()
+}
 
 export const supabaseHost =
   typeof window !== 'undefined' ? window.location.host : configuredUrl ?? null
@@ -32,15 +47,12 @@ export function getSupabase(): SupabaseClient | null {
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: false,
-        // Avoid navigator.locks deadlocks on some mobile browsers
-        lock: async <R>(_name: string, _acquireTimeout: number, fn: () => Promise<R>) => fn(),
-      },
-      realtime: {
-        // Realtime websockets are optional; REST sync is enough.
-        // Same-origin proxy may not upgrade WS — keep REST as source of truth.
-        params: { apikey: anon },
       },
       global: {
+        headers: {
+          Accept: 'application/json',
+          'Accept-Profile': 'public',
+        },
         fetch: (input, init) => {
           const ctrl = new AbortController()
           const timer = setTimeout(() => ctrl.abort(), 20_000)
@@ -49,7 +61,12 @@ export function getSupabase(): SupabaseClient | null {
             if (signal.aborted) ctrl.abort()
             else signal.addEventListener('abort', () => ctrl.abort(), { once: true })
           }
-          return fetch(input, { ...init, signal: ctrl.signal }).finally(() => clearTimeout(timer))
+          const headers = new Headers(init?.headers)
+          if (!headers.has('Accept')) headers.set('Accept', 'application/json')
+          if (!headers.has('Accept-Profile')) headers.set('Accept-Profile', 'public')
+          return fetch(input, { ...init, headers, signal: ctrl.signal }).finally(() =>
+            clearTimeout(timer),
+          )
         },
       },
     })

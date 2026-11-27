@@ -2,9 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { formatSyncError } from '../lib/errors'
 import { SAMPLE_ENVELOPES } from '../lib/samples'
 import { setCachedEnvelopes, getCachedEnvelopes } from '../lib/storage'
+import { ensureSpaceMembership } from '../lib/spaces'
 import {
   ensureAnonymousSession,
   getSupabase,
+  isRealtimeEnabled,
   isSupabaseConfigured,
 } from '../lib/supabase'
 import type { Envelope, EnvelopeInput, SyncStatus } from '../lib/types'
@@ -82,6 +84,7 @@ export function useEnvelopes(spaceCode: string | null, cloudSync = true) {
     setError(null)
     try {
       await ensureAnonymousSession()
+      await ensureSpaceMembership(spaceCode)
       const client = getSupabase()
       if (!client) throw new Error('Supabase לא מוגדר')
 
@@ -105,18 +108,20 @@ export function useEnvelopes(spaceCode: string | null, cloudSync = true) {
     void refresh()
   }, [refresh])
 
+  // Same-origin `/sb` cannot proxy WebSockets — skip Realtime; REST refresh is enough.
   useEffect(() => {
-    if (!spaceCode || !isSupabaseConfigured || !cloudSync) return
+    if (!spaceCode || !isSupabaseConfigured || !cloudSync || !isRealtimeEnabled()) return
+
     let cancelled = false
-    let client = getSupabase()
+    let channel: ReturnType<NonNullable<ReturnType<typeof getSupabase>>['channel']> | null = null
 
     void (async () => {
       try {
         await ensureAnonymousSession()
-        client = getSupabase()
+        const client = getSupabase()
         if (!client || cancelled) return
 
-        const channel = client
+        channel = client
           .channel(`envelopes:${spaceCode}`)
           .on(
             'postgres_changes',
@@ -147,10 +152,6 @@ export function useEnvelopes(spaceCode: string | null, cloudSync = true) {
             },
           )
           .subscribe()
-
-        return () => {
-          void client?.removeChannel(channel)
-        }
       } catch {
         /* realtime optional */
       }
@@ -158,6 +159,10 @@ export function useEnvelopes(spaceCode: string | null, cloudSync = true) {
 
     return () => {
       cancelled = true
+      if (channel) {
+        const client = getSupabase()
+        void client?.removeChannel(channel)
+      }
     }
   }, [spaceCode, cloudSync])
 

@@ -1,5 +1,5 @@
 /* Lightweight offline shell for Add to Home Screen */
-const CACHE = 'envelope-v4'
+const CACHE = 'envelope-v5'
 const PRECACHE = ['/manifest.json', '/icons/icon-192.png', '/icons/icon-512.png']
 
 self.addEventListener('install', (event) => {
