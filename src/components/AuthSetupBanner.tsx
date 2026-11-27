@@ -9,6 +9,14 @@ interface Props {
 const DASHBOARD =
   'https://supabase.com/dashboard/project/wiznbwjvyjkjvbnzhdcf'
 
+function Ltr({ children }: { children: string }) {
+  return (
+    <span className="mx-0.5 inline-block font-mono text-[12px]" dir="ltr">
+      {children}
+    </span>
+  )
+}
+
 export function AuthSetupBanner({
   message,
   host,
@@ -17,40 +25,58 @@ export function AuthSetupBanner({
   onContinueLocal,
 }: Props) {
   return (
-    <div className="border-b border-amber-200 bg-amber-50 px-4 py-4 text-amber-950">
-      <p className="text-sm font-semibold">סנכרון לא פעיל</p>
+    <div
+      className="border-b border-amber-200 bg-amber-50 px-4 py-4 text-right text-amber-950"
+      dir="rtl"
+      lang="he"
+    >
+      <p className="text-sm font-semibold">הסנכרון לא פעיל</p>
       <p className="mt-1 text-sm leading-relaxed">{message}</p>
       {host && (
-        <p className="mt-1 text-[11px] text-amber-900/70" dir="ltr">
-          {host}
+        <p className="mt-2 text-[11px] leading-relaxed text-amber-900/75">
+          כתובת השרת:{' '}
+          <Ltr>{host}</Ltr>
         </p>
       )}
-      <ol className="mt-3 list-decimal space-y-1 pr-5 text-sm leading-relaxed">
+
+      <p className="mt-3 text-sm font-semibold">מה לבדוק</p>
+      <ol className="mt-2 list-decimal space-y-2 ps-5 text-sm leading-relaxed marker:font-semibold">
         <li>
+          בדשבורד של Supabase פתחו{' '}
           <a
             className="font-medium underline underline-offset-2"
             href={`${DASHBOARD}/auth/providers`}
             target="_blank"
             rel="noreferrer"
           >
-            Authentication → Providers → Anonymous → Enable
+            אימות ← ספקים
           </a>
+          , והפעילו את{' '}
+          <span className="font-semibold">התחברות אנונימית</span>
+          {' '}
+          (<Ltr>Anonymous</Ltr>).
         </li>
         <li>
+          ב־
           <a
             className="font-medium underline underline-offset-2"
             href={`${DASHBOARD}/sql/new`}
             target="_blank"
             rel="noreferrer"
           >
-            SQL Editor
+            עורך ה־SQL
           </a>{' '}
-          → להדביק את כל <code className="rounded bg-amber-100 px-1">supabase/schema.sql</code> →
-          Run
+          הדביקו את כל תוכן הקובץ{' '}
+          <Ltr>supabase/schema.sql</Ltr>
+          {' '}ולחצו הרצה.
         </li>
-        <li>כבו חוסם פרסומות / VPN לכתובת supabase.co ורעננו</li>
+        <li>
+          במכשיר: כבו לזמן קצר חוסם פרסומות או VPN, בדקו רשת אחרת (סלולר או Wi‑Fi),
+          ואז לחצו «נסו להתחבר שוב».
+        </li>
       </ol>
-      <div className="mt-3 flex flex-wrap gap-3">
+
+      <div className="mt-4 flex flex-wrap items-center justify-start gap-3">
         {onRetry && (
           <button
             type="button"
@@ -58,7 +84,7 @@ export function AuthSetupBanner({
             onClick={onRetry}
             className="rounded-xl bg-forest px-3 py-2 text-sm font-semibold text-cream disabled:opacity-60"
           >
-            {busy ? 'בודקים…' : 'נסה להתחבר שוב'}
+            {busy ? 'בודקים…' : 'נסו להתחבר שוב'}
           </button>
         )}
         {onContinueLocal && (

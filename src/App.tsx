@@ -241,22 +241,26 @@ export default function App() {
         <main className="min-h-0 flex-1 overflow-y-auto">
           {setupBanner}
           {!authError && error && status !== 'synced' && (
-            <div className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-amber-950">
-              <p className="text-center text-[11px]">{error}</p>
-              <div className="mt-2 flex justify-center">
+            <div
+              className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-right text-amber-950"
+              dir="rtl"
+              lang="he"
+            >
+              <p className="text-sm leading-relaxed">{error}</p>
+              <div className="mt-2 flex justify-start">
                 <button
                   type="button"
                   disabled={authBusy}
                   onClick={() => void connectCloud()}
                   className="rounded-xl bg-forest px-3 py-1.5 text-xs font-semibold text-cream disabled:opacity-60"
                 >
-                  {authBusy ? 'בודקים…' : 'נסה שוב'}
+                  {authBusy ? 'בודקים…' : 'נסו שוב'}
                 </button>
               </div>
             </div>
           )}
           {localOnly && (
-            <p className="bg-stone-100 px-4 py-2 text-center text-xs text-forest/70">
+            <p className="bg-stone-100 px-4 py-2 text-center text-xs text-forest/70" dir="rtl">
               מצב מקומי — בלי סנכרון ענן
             </p>
           )}

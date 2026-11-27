@@ -1,4 +1,4 @@
-/** Map Supabase / network failures to clear Hebrew guidance. */
+/** Map Supabase / network failures to clear Hebrew (RTL-friendly) guidance. */
 export function formatSyncError(err: unknown): string {
   const raw =
     err instanceof Error
@@ -18,14 +18,14 @@ export function formatSyncError(err: unknown): string {
     lower.includes('abort') ||
     name.includes('abort')
   ) {
-    return 'אין חיבור ל־Supabase מהמכשיר (Failed to fetch). כבו חוסם פרסומות/VPN, בדקו רשת סלולר/Wi‑Fi, לחצו «נסה להתחבר שוב». אם Anonymous כבר דולק — זו בעיית רשת למכשיר, לא הגדרת SQL.'
+    return 'אין חיבור לשרת מהמכשיר. כבו חוסם פרסומות או VPN, בדקו את הרשת, ולחצו «נסו להתחבר שוב». אם ההתחברות האנונימית כבר דולקת — זו בעיית רשת במכשיר, לא בעיה בהגדרת מסד הנתונים.'
   }
 
   if (
     lower.includes('anonymous') ||
     lower.includes('anonymous_provider_disabled')
   ) {
-    return 'יש להפעיל Anonymous Sign-Ins ב־Supabase: Authentication → Providers → Anonymous → Enable'
+    return 'יש להפעיל התחברות אנונימית בדשבורד: אימות ← ספקים ← Anonymous ← הפעלה.'
   }
 
   if (
@@ -34,11 +34,16 @@ export function formatSyncError(err: unknown): string {
     lower.includes('could not find the function') ||
     lower.includes('pgrst202')
   ) {
-    return 'חסר סכמת DB. ב־Supabase SQL Editor הריצו את כל הקובץ supabase/schema.sql'
+    return 'חסרה סכמת מסד הנתונים. בעורך ה־SQL בדשבורד הריצו את כל הקובץ supabase/schema.sql.'
   }
 
   if (lower.includes('jwt') || lower.includes('invalid api key')) {
-    return 'מפתח Supabase לא תקין — בדקו VITE_SUPABASE_URL ו־VITE_SUPABASE_ANON_KEY ב־Vercel'
+    return 'מפתח השרת לא תקין. בדקו ב־Vercel את משתני הסביבה של כתובת ומפתח Supabase.'
+  }
+
+  // Keep raw English only as last resort, prefixed so RTL readers know it's a technical detail
+  if (/^[A-Za-z0-9]/.test(raw.trim())) {
+    return `שגיאה מהשרת: ${raw}`
   }
 
   return raw
