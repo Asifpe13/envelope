@@ -5,28 +5,36 @@ const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 
 export const isSupabaseConfigured = Boolean(url && anon && !url.includes('YOUR_PROJECT'))
 
-/** Clients are keyed by space_code so RLS receives `x-space-code` on every request. */
-const clients = new Map<string, SupabaseClient>()
+let client: SupabaseClient | null = null
 
-/**
- * Supabase client scoped to one notebook.
- * RLS policies require the `x-space-code` header to match `envelopes.space_code`.
- */
-export function getSupabase(spaceCode: string): SupabaseClient | null {
+export function getSupabase(): SupabaseClient | null {
   if (!isSupabaseConfigured || !url || !anon) return null
-  const key = spaceCode.trim()
-  if (!key) return null
-
-  const existing = clients.get(key)
-  if (existing) return existing
-
-  const client = createClient(url, anon, {
-    global: {
-      headers: {
-        'x-space-code': key,
+  if (!client) {
+    client = createClient(url, anon, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: false,
       },
-    },
-  })
-  clients.set(key, client)
+    })
+  }
   return client
+}
+
+/** Ensure a durable anonymous session (no email). Required before data access. */
+export async function ensureAnonymousSession(): Promise<void> {
+  const sb = getSupabase()
+  if (!sb) return
+
+  const { data: existing } = await sb.auth.getSession()
+  if (existing.session) return
+
+  const { error } = await sb.auth.signInAnonymously()
+  if (error) {
+    throw new Error(
+      error.message.includes('anonymous') || error.status === 422
+        ? 'יש להפעיל Anonymous Sign-Ins ב־Supabase (Authentication → Providers)'
+        : error.message,
+    )
+  }
 }

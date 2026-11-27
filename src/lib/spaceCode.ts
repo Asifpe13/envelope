@@ -8,8 +8,9 @@ const AMBIGUOUS: Record<string, string> = {
   U: 'V',
 }
 
-/** 8 characters → ~40 bits of entropy, shown as ABCD-EFGH. */
-const CODE_LENGTH = 8
+/** 12 characters → ~60 bits of entropy, shown as ABCD-EFGH-IJKL. */
+const CODE_LENGTH = 12
+const MIN_CODE_LENGTH = 8
 
 export function generateSpaceCode(): string {
   const bytes = new Uint8Array(CODE_LENGTH)
@@ -27,8 +28,7 @@ function stripSeparators(input: string): string {
 
 function looksLikeCrockford(input: string): boolean {
   const stripped = stripSeparators(input).toUpperCase()
-  // Only our generated codes (exact length) — legacy freeform PINs stay as typed.
-  if (stripped.length !== CODE_LENGTH) return false
+  if (stripped.length < MIN_CODE_LENGTH) return false
   return [...stripped].every((ch) => {
     const mapped = AMBIGUOUS[ch] ?? ch
     return ALPHABET.includes(mapped)
@@ -44,7 +44,7 @@ function normalizeCrockford(input: string): string {
     .join('')
 }
 
-/** Display form: ABCD-EFGH for Crockford codes; otherwise the trimmed original. */
+/** Display form: ABCD-EFGH-IJKL */
 export function formatSpaceCode(code: string): string {
   const trimmed = code.trim()
   if (!trimmed) return ''
@@ -57,53 +57,49 @@ export function formatSpaceCode(code: string): string {
   return parts.join('-')
 }
 
-/**
- * Canonical form for storage / comparison.
- * New Crockford codes → uppercase, no separators.
- * Legacy freeform PINs → trimmed as typed (so existing notebooks keep syncing).
- */
+/** Canonical form for storage / comparison. */
 export function normalizeSpaceCode(input: string): string {
   const trimmed = input.trim()
   if (!trimmed) return ''
   if (looksLikeCrockford(trimmed)) return normalizeCrockford(trimmed)
-  return trimmed
+  return stripSeparators(trimmed).toUpperCase()
 }
 
 export function isValidSpaceCode(input: string): boolean {
-  return normalizeSpaceCode(input).length >= 4
+  return normalizeSpaceCode(input).length >= MIN_CODE_LENGTH
 }
 
+/** Invite URL uses hash only — not sent as a query/referrer. */
 export function buildInviteUrl(code: string, baseUrl = window.location.href): string {
   const url = new URL(baseUrl)
   url.search = ''
-  url.hash = ''
-  url.searchParams.set('space', normalizeSpaceCode(code) || code.trim())
+  url.hash = `space=${encodeURIComponent(normalizeSpaceCode(code) || code.trim())}`
   return url.toString()
 }
 
-/** Read invite code from `?space=` or `#space=`. */
+/** Read invite code from `#space=` (preferred) or legacy `?space=`. */
 export function readSpaceFromUrl(href = window.location.href): string | null {
   try {
     const url = new URL(href)
-    const fromQuery = url.searchParams.get('space')
-    if (fromQuery?.trim()) return fromQuery.trim()
 
     const hash = url.hash.replace(/^#/, '')
     if (hash.startsWith('space=')) {
       const value = decodeURIComponent(hash.slice('space='.length)).trim()
       return value || null
     }
-
     const hashParams = new URLSearchParams(hash)
     const fromHash = hashParams.get('space')
     if (fromHash?.trim()) return fromHash.trim()
+
+    // Legacy query support (cleared after join)
+    const fromQuery = url.searchParams.get('space')
+    if (fromQuery?.trim()) return fromQuery.trim()
   } catch {
-    /* ignore malformed URLs */
+    /* ignore */
   }
   return null
 }
 
-/** Remove space invite params from the address bar without reloading. */
 export function clearSpaceFromUrl() {
   try {
     const url = new URL(window.location.href)
@@ -124,7 +120,6 @@ export function clearSpaceFromUrl() {
   }
 }
 
-/** True when two codes refer to the same notebook. */
 export function spaceCodesMatch(a: string, b: string): boolean {
-  return normalizeSpaceCode(a) === normalizeSpaceCode(b) || a.trim() === b.trim()
+  return normalizeSpaceCode(a) === normalizeSpaceCode(b)
 }

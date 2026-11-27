@@ -10,6 +10,7 @@ import {
   readSpaceFromUrl,
   spaceCodesMatch,
 } from './lib/spaceCode'
+import { createSpaceRemote, joinSpaceRemote } from './lib/spaces'
 import {
   clearSpace,
   getUsername,
@@ -18,6 +19,7 @@ import {
   setSpaceCode,
   setUsername,
 } from './lib/storage'
+import { ensureAnonymousSession, isSupabaseConfigured } from './lib/supabase'
 import type { Envelope, EnvelopeInput, Screen } from './lib/types'
 import { EnvelopeForm } from './screens/EnvelopeForm'
 import { EnvelopeList } from './screens/EnvelopeList'
@@ -27,6 +29,8 @@ import { SpaceSetup } from './screens/SpaceSetup'
 
 export default function App() {
   const [inviteOnBoot] = useState(() => readSpaceFromUrl())
+  const [authReady, setAuthReady] = useState(!isSupabaseConfigured)
+  const [authError, setAuthError] = useState<string | null>(null)
 
   const [spaceReady, setSpaceReady] = useState(
     () => isSpaceConfirmed() && Boolean(resolveInitialSpaceCode()),
@@ -60,6 +64,22 @@ export default function App() {
     document.documentElement.dir = 'rtl'
   }, [])
 
+  useEffect(() => {
+    if (!isSupabaseConfigured) {
+      setAuthReady(true)
+      return
+    }
+    void ensureAnonymousSession()
+      .then(() => {
+        setAuthReady(true)
+        setAuthError(null)
+      })
+      .catch((e) => {
+        setAuthReady(true)
+        setAuthError(e instanceof Error ? e.message : 'שגיאת התחברות')
+      })
+  }, [])
+
   const enterSpace = useCallback((code: string, opts?: { showShare?: boolean }) => {
     const normalized = normalizeSpaceCode(code)
     setSpaceCode(normalized)
@@ -72,20 +92,36 @@ export default function App() {
     }
   }, [])
 
+  const handleCreate = useCallback(
+    async (code: string) => {
+      const registered = await createSpaceRemote(code)
+      enterSpace(registered, { showShare: true })
+    },
+    [enterSpace],
+  )
+
+  const handleJoin = useCallback(
+    async (code: string) => {
+      const joined = await joinSpaceRemote(code)
+      enterSpace(joined)
+    },
+    [enterSpace],
+  )
+
   const openShare = useCallback(() => {
     setShareTitle('שתפו את הפנקס')
     setShareOpen(true)
   }, [])
 
-  // Deep link: ?space=CODE on boot
   useEffect(() => {
-    if (!inviteOnBoot) return
+    if (!authReady || !inviteOnBoot) return
     const invite = inviteOnBoot.trim()
     if (!invite) return
 
     if (!spaceReady || !spaceCode) {
-      // Auto-join when there is no existing notebook
-      enterSpace(invite)
+      void handleJoin(invite).catch(() => {
+        setPendingInvite(invite)
+      })
       return
     }
 
@@ -94,9 +130,8 @@ export default function App() {
       return
     }
 
-    // Switching notebooks — ask first
     setPendingInvite(invite)
-  }, [inviteOnBoot, spaceReady, spaceCode, enterSpace])
+  }, [authReady, inviteOnBoot, spaceReady, spaceCode, handleJoin])
 
   const openForm = useCallback((target: Envelope | null, back: Screen) => {
     setEditing(target)
@@ -126,14 +161,27 @@ export default function App() {
     setScreen('home')
   }
 
+  if (!authReady) {
+    return (
+      <div className="app-shell flex min-h-dvh items-center justify-center px-5">
+        <p className="text-sm text-forest/60">מתחברים…</p>
+      </div>
+    )
+  }
+
   if (!spaceReady || !spaceCode) {
     return (
       <div className="app-shell">
+        {authError && (
+          <p className="bg-amber-50 px-4 py-2 text-center text-[11px] text-amber-900">
+            {authError}
+          </p>
+        )}
         <SpaceSetup
           initialCode={inviteOnBoot || ''}
           startOnJoin={Boolean(inviteOnBoot)}
-          onCreate={(code) => enterSpace(code, { showShare: true })}
-          onJoin={(code) => enterSpace(code)}
+          onCreate={handleCreate}
+          onJoin={handleJoin}
         />
       </div>
     )
@@ -143,9 +191,9 @@ export default function App() {
     <div className="app-shell">
       <div className="app-frame">
         <main className="min-h-0 flex-1 overflow-y-auto">
-          {error && status !== 'synced' && (
+          {(error || authError) && status !== 'synced' && (
             <p className="bg-amber-50 px-4 py-2 text-center text-[11px] text-amber-900">
-              {error}
+              {error || authError}
             </p>
           )}
 
@@ -237,8 +285,7 @@ export default function App() {
         confirmLabel="החלפה"
         onConfirm={() => {
           if (pendingInvite) {
-            enterSpace(pendingInvite)
-            setPendingInvite(null)
+            void handleJoin(pendingInvite).then(() => setPendingInvite(null))
           }
         }}
         onCancel={() => {

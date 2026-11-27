@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { SAMPLE_ENVELOPES } from '../lib/samples'
 import { setCachedEnvelopes, getCachedEnvelopes } from '../lib/storage'
-import { getSupabase, isSupabaseConfigured } from '../lib/supabase'
+import {
+  ensureAnonymousSession,
+  getSupabase,
+  isSupabaseConfigured,
+} from '../lib/supabase'
 import type { Envelope, EnvelopeInput, SyncStatus } from '../lib/types'
 
 function sortRows(rows: Envelope[]): Envelope[] {
@@ -41,8 +45,6 @@ export function useEnvelopes(spaceCode: string | null) {
   const [status, setStatus] = useState<SyncStatus>('loading')
   const [error, setError] = useState<string | null>(null)
 
-  const client = spaceCode && isSupabaseConfigured ? getSupabase(spaceCode) : null
-
   const commit = useCallback((rows: Envelope[], nextStatus: SyncStatus) => {
     const sorted = sortRows(rows)
     setEnvelopes(sorted)
@@ -68,16 +70,20 @@ export function useEnvelopes(spaceCode: string | null) {
       return
     }
 
-    if (!client) {
+    if (!isSupabaseConfigured) {
       const cached = getCachedEnvelopes().filter((e) => e.space_code === spaceCode)
       commit(cached, 'cache')
-      setError(isSupabaseConfigured ? null : 'Supabase לא מוגדר — עובדים במצב מקומי')
+      setError('Supabase לא מוגדר — עובדים במצב מקומי')
       return
     }
 
     setStatus('loading')
     setError(null)
     try {
+      await ensureAnonymousSession()
+      const client = getSupabase()
+      if (!client) throw new Error('Supabase לא מוגדר')
+
       const { data, error: qErr } = await client
         .from('envelopes')
         .select('*')
@@ -92,51 +98,67 @@ export function useEnvelopes(spaceCode: string | null) {
       commit(cached.length ? cached : getCachedEnvelopes(), 'cache')
       setError(e instanceof Error ? e.message : 'שגיאת סנכרון')
     }
-  }, [spaceCode, client, commit])
+  }, [spaceCode, commit])
 
   useEffect(() => {
     void refresh()
   }, [refresh])
 
   useEffect(() => {
-    if (!spaceCode || !client) return
+    if (!spaceCode || !isSupabaseConfigured) return
+    let cancelled = false
+    let client = getSupabase()
 
-    const channel = client
-      .channel(`envelopes:${spaceCode}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'envelopes',
-          filter: `space_code=eq.${spaceCode}`,
-        },
-        (payload) => {
-          setEnvelopes((prev) => {
-            let next = [...prev]
-            if (payload.eventType === 'INSERT' && payload.new) {
-              const row = normalizeRow(payload.new as Record<string, unknown>)
-              if (!next.some((e) => e.id === row.id)) next = [row, ...next]
-            } else if (payload.eventType === 'UPDATE' && payload.new) {
-              const row = normalizeRow(payload.new as Record<string, unknown>)
-              next = next.map((e) => (e.id === row.id ? row : e))
-            } else if (payload.eventType === 'DELETE' && payload.old) {
-              const id = String((payload.old as { id?: string }).id ?? '')
-              next = next.filter((e) => e.id !== id)
-            }
-            const sorted = sortRows(next)
-            setCachedEnvelopes(sorted)
-            setStatus('synced')
-            return sorted
-          })
-        },
-      )
-      .subscribe()
+    void (async () => {
+      try {
+        await ensureAnonymousSession()
+        client = getSupabase()
+        if (!client || cancelled) return
+
+        const channel = client
+          .channel(`envelopes:${spaceCode}`)
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'envelopes',
+              filter: `space_code=eq.${spaceCode}`,
+            },
+            (payload) => {
+              setEnvelopes((prev) => {
+                let next = [...prev]
+                if (payload.eventType === 'INSERT' && payload.new) {
+                  const row = normalizeRow(payload.new as Record<string, unknown>)
+                  if (!next.some((e) => e.id === row.id)) next = [row, ...next]
+                } else if (payload.eventType === 'UPDATE' && payload.new) {
+                  const row = normalizeRow(payload.new as Record<string, unknown>)
+                  next = next.map((e) => (e.id === row.id ? row : e))
+                } else if (payload.eventType === 'DELETE' && payload.old) {
+                  const id = String((payload.old as { id?: string }).id ?? '')
+                  next = next.filter((e) => e.id !== id)
+                }
+                const sorted = sortRows(next)
+                setCachedEnvelopes(sorted)
+                setStatus('synced')
+                return sorted
+              })
+            },
+          )
+          .subscribe()
+
+        return () => {
+          void client?.removeChannel(channel)
+        }
+      } catch {
+        /* realtime optional */
+      }
+    })()
 
     return () => {
-      void client.removeChannel(channel)
+      cancelled = true
     }
-  }, [spaceCode, client])
+  }, [spaceCode])
 
   const toPayload = useCallback(
     (input: EnvelopeInput) => {
@@ -164,7 +186,7 @@ export function useEnvelopes(spaceCode: string | null) {
     async (input: EnvelopeInput) => {
       const payload = toPayload(input)
 
-      if (!client) {
+      if (!isSupabaseConfigured) {
         const local: Envelope = {
           ...payload,
           id: localId(),
@@ -174,6 +196,10 @@ export function useEnvelopes(spaceCode: string | null) {
         patchLocal((prev) => [local, ...prev], 'cache')
         return local
       }
+
+      await ensureAnonymousSession()
+      const client = getSupabase()
+      if (!client) throw new Error('Supabase לא מוגדר')
 
       const { data, error: qErr } = await client
         .from('envelopes')
@@ -185,7 +211,7 @@ export function useEnvelopes(spaceCode: string | null) {
       patchLocal((prev) => [row, ...prev.filter((e) => e.id !== row.id)], 'synced')
       return row
     },
-    [toPayload, patchLocal, client],
+    [toPayload, patchLocal],
   )
 
   const updateEnvelope = useCallback(
@@ -208,13 +234,17 @@ export function useEnvelopes(spaceCode: string | null) {
       }
       if (patch.notes !== undefined) payload.notes = patch.notes?.trim() || null
 
-      if (!client) {
+      if (!isSupabaseConfigured) {
         patchLocal(
           (prev) => prev.map((e) => (e.id === id ? normalizeRow({ ...e, ...payload }) : e)),
           'cache',
         )
         return
       }
+
+      await ensureAnonymousSession()
+      const client = getSupabase()
+      if (!client) throw new Error('Supabase לא מוגדר')
 
       const { data, error: qErr } = await client
         .from('envelopes')
@@ -230,17 +260,21 @@ export function useEnvelopes(spaceCode: string | null) {
         'synced',
       )
     },
-    [spaceCode, patchLocal, client],
+    [spaceCode, patchLocal],
   )
 
   const deleteEnvelope = useCallback(
     async (id: string) => {
       if (!spaceCode) throw new Error('אין קוד פנקס')
 
-      if (!client) {
+      if (!isSupabaseConfigured) {
         patchLocal((prev) => prev.filter((e) => e.id !== id), 'cache')
         return
       }
+
+      await ensureAnonymousSession()
+      const client = getSupabase()
+      if (!client) throw new Error('Supabase לא מוגדר')
 
       const { error: qErr } = await client
         .from('envelopes')
@@ -250,14 +284,14 @@ export function useEnvelopes(spaceCode: string | null) {
       if (qErr) throw new Error(qErr.message)
       patchLocal((prev) => prev.filter((e) => e.id !== id), 'synced')
     },
-    [spaceCode, patchLocal, client],
+    [spaceCode, patchLocal],
   )
 
   const loadSamples = useCallback(async () => {
     if (!spaceCode) throw new Error('אין קוד פנקס')
     const payloads = SAMPLE_ENVELOPES.map((s) => toPayload(s))
 
-    if (!client) {
+    if (!isSupabaseConfigured) {
       const locals: Envelope[] = payloads.map((payload, i) => ({
         ...payload,
         id: localId(),
@@ -268,11 +302,15 @@ export function useEnvelopes(spaceCode: string | null) {
       return
     }
 
+    await ensureAnonymousSession()
+    const client = getSupabase()
+    if (!client) throw new Error('Supabase לא מוגדר')
+
     const { data, error: qErr } = await client.from('envelopes').insert(payloads).select('*')
     if (qErr) throw new Error(qErr.message)
     const rows = (data ?? []).map((r) => normalizeRow(r as Record<string, unknown>))
     patchLocal((prev) => [...rows, ...prev], 'synced')
-  }, [spaceCode, toPayload, patchLocal, client])
+  }, [spaceCode, toPayload, patchLocal])
 
   const stats = useMemo(() => {
     const totalGiven = envelopes.reduce((s, e) => s + (Number(e.amount_given) || 0), 0)

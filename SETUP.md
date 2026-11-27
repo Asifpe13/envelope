@@ -2,22 +2,12 @@
 
 Hebrew RTL PWA for tracking wedding/event gift envelopes, with **shared Supabase sync** between two phones and **no email/password login**.
 
-## One remaining DB step
+## Supabase setup (required)
 
-I cannot run DDL against your Supabase project from this agent (no `SUPABASE_ACCESS_TOKEN`, no `service_role`, no DB password — the anon key cannot alter schema).
+1. **Authentication → Providers → Anonymous → Enable**
+2. SQL Editor → paste the **entire** [`supabase/schema.sql`](./supabase/schema.sql) → **Run**
 
-**Do this once:** Supabase → **SQL Editor** → New query → paste the **entire** contents of [`supabase/schema.sql`](./supabase/schema.sql) → **Run**.
-
-That single script:
-
-- upgrades an existing `envelopes` table (adds missing columns)
-- drops legacy RLS policies that reference `user_id` (fixes `cannot drop column user_id … policy envelopes_all depends on it`)
-- drops the legacy `user_id` column
-- grants table access to `anon` under RLS
-- creates space-scoped RLS policies (`x-space-code` header)
-- enables Realtime
-
-Safe to re-run.
+The script creates `spaces` / `space_members`, upgrades `envelopes`, and enforces RLS so only signed-in members of a notebook can read/write it (anonymous device sessions, no email).
 
 ## Environment variables (already done locally)
 
@@ -73,4 +63,4 @@ Or claim a temporary agent deploy if one was provided in chat (expires ~60 minut
 
 ## Security
 
-Row Level Security scopes every query to the notebook in the `x-space-code` request header (must match `space_code`). The anon key alone cannot list other households’ envelopes. Knowing both the anon key **and** a specific space code still grants access to that notebook — treat invite links like a household password.
+Each device signs in anonymously (no email). Notebooks use membership (`space_members`); RLS allows envelope access only to members. Invite links use a long generated code in the URL **hash** (`#space=…`). Treat the invite like a household password.
