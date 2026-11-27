@@ -108,10 +108,8 @@ BEGIN
   END IF;
 END $$;
 
--- Legacy cleanup: older auth-based schemas had user_id NOT NULL, which blocks
--- anon inserts (this app has no login — access is via space_code only).
--- Policies that reference user_id / auth.uid() must be dropped BEFORE the column
--- (Postgres error 2BP01 otherwise — do not rely on CASCADE).
+-- Legacy cleanup: older drafts used auth columns (user_id, person_id, amount,
+-- attendee_count, …) that block inserts. Drop ALL non-app columns.
 DROP POLICY IF EXISTS "envelopes_all" ON public.envelopes;
 DROP POLICY IF EXISTS "envelopes_policy" ON public.envelopes;
 DROP POLICY IF EXISTS "Users can manage their own envelopes" ON public.envelopes;
@@ -125,7 +123,28 @@ DROP POLICY IF EXISTS "envelopes_insert_own" ON public.envelopes;
 DROP POLICY IF EXISTS "envelopes_update_own" ON public.envelopes;
 DROP POLICY IF EXISTS "envelopes_delete_own" ON public.envelopes;
 
-ALTER TABLE public.envelopes DROP COLUMN IF EXISTS user_id;
+DO $$
+DECLARE
+  keep text[] := ARRAY[
+    'id', 'space_code', 'event_type', 'host_name', 'event_date',
+    'attended', 'party_size_type', 'party_count',
+    'amount_given', 'amount_received', 'notes', 'created_at'
+  ];
+  r record;
+BEGIN
+  FOR r IN
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'envelopes'
+      AND column_name <> ALL (keep)
+  LOOP
+    EXECUTE format(
+      'ALTER TABLE public.envelopes DROP COLUMN IF EXISTS %I CASCADE',
+      r.column_name
+    );
+  END LOOP;
+END $$;
 
 -- Fast lookups / realtime filters by household space
 CREATE INDEX IF NOT EXISTS envelopes_space_code_idx
@@ -141,34 +160,69 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.envelopes TO anon, authenti
 -- Enable Row Level Security
 ALTER TABLE public.envelopes ENABLE ROW LEVEL SECURITY;
 
+-- Space isolation: client must send header x-space-code matching the row.
+-- Without a matching header, no rows are visible or writable.
+CREATE OR REPLACE FUNCTION public.request_space_code()
+RETURNS text
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT NULLIF(
+    btrim(
+      COALESCE(
+        current_setting('request.headers', true)::json->>'x-space-code',
+        ''
+      )
+    ),
+    ''
+  );
+$$;
+
+REVOKE ALL ON FUNCTION public.request_space_code() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.request_space_code() TO anon, authenticated;
+
 -- Drop old policies if re-running this script
 DROP POLICY IF EXISTS "envelopes_select_anon" ON public.envelopes;
 DROP POLICY IF EXISTS "envelopes_insert_anon" ON public.envelopes;
 DROP POLICY IF EXISTS "envelopes_update_anon" ON public.envelopes;
 DROP POLICY IF EXISTS "envelopes_delete_anon" ON public.envelopes;
 
--- Anon key can CRUD all rows. Access control = knowing the space_code.
--- The client ALWAYS filters by space_code; never ship the service_role key.
+-- CRUD only within the notebook identified by x-space-code.
 CREATE POLICY "envelopes_select_anon"
   ON public.envelopes FOR SELECT
   TO anon, authenticated
-  USING (true);
+  USING (
+    public.request_space_code() IS NOT NULL
+    AND space_code = public.request_space_code()
+  );
 
 CREATE POLICY "envelopes_insert_anon"
   ON public.envelopes FOR INSERT
   TO anon, authenticated
-  WITH CHECK (true);
+  WITH CHECK (
+    public.request_space_code() IS NOT NULL
+    AND space_code = public.request_space_code()
+  );
 
 CREATE POLICY "envelopes_update_anon"
   ON public.envelopes FOR UPDATE
   TO anon, authenticated
-  USING (true)
-  WITH CHECK (true);
+  USING (
+    public.request_space_code() IS NOT NULL
+    AND space_code = public.request_space_code()
+  )
+  WITH CHECK (
+    public.request_space_code() IS NOT NULL
+    AND space_code = public.request_space_code()
+  );
 
 CREATE POLICY "envelopes_delete_anon"
   ON public.envelopes FOR DELETE
   TO anon, authenticated
-  USING (true);
+  USING (
+    public.request_space_code() IS NOT NULL
+    AND space_code = public.request_space_code()
+  );
 
 -- Realtime: add table to the supabase_realtime publication
 -- (safe to re-run; ignores if already added)
@@ -189,6 +243,7 @@ END $$;
 -- SECURITY NOTES
 -- 1. Use ONLY the anon (public) key in the frontend .env
 -- 2. NEVER expose the service_role key in the app or git
--- 3. Pick a non-guessable space_code (e.g. random phrase / PIN)
--- 4. Anyone with both the anon key AND your space_code can read/write
+-- 3. RLS isolates rows by x-space-code (must match envelopes.space_code)
+-- 4. Knowing anon key alone cannot list other notebooks
+-- 5. Invite links use strong generated space codes — treat like a household password
 -- ============================================================

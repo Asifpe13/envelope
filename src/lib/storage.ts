@@ -50,18 +50,9 @@ export function setCachedEnvelopes(rows: Envelope[]) {
   localStorage.setItem(KEYS.cache, JSON.stringify(rows))
 }
 
-/**
- * Resolved space for a confirmed session, or empty when onboarding is needed.
- * `VITE_DEFAULT_SPACE_CODE` is an optional silent prefill only — never auto-confirms.
- */
+/** Resolved space for a confirmed session, or empty when onboarding is needed. */
 export function resolveInitialSpaceCode(): string {
   const stored = getSpaceCode()
   if (stored) return stored
   return ''
-}
-
-/** Optional env prefill for the join form (not used as primary UX). */
-export function getEnvSpacePrefill(): string {
-  const fromEnv = import.meta.env.VITE_DEFAULT_SPACE_CODE as string | undefined
-  return fromEnv?.trim() || ''
 }

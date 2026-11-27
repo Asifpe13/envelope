@@ -13,8 +13,8 @@ That single script:
 - upgrades an existing `envelopes` table (adds missing columns)
 - drops legacy RLS policies that reference `user_id` (fixes `cannot drop column user_id … policy envelopes_all depends on it`)
 - drops the legacy `user_id` column
-- grants `anon` SELECT/INSERT/UPDATE/DELETE
-- creates anon RLS policies
+- grants table access to `anon` under RLS
+- creates space-scoped RLS policies (`x-space-code` header)
 - enables Realtime
 
 Safe to re-run.
@@ -26,8 +26,6 @@ Safe to re-run.
 ```env
 VITE_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
 VITE_SUPABASE_ANON_KEY=eyJhbGciOi...
-# Optional only — not part of normal onboarding
-# VITE_DEFAULT_SPACE_CODE=
 ```
 
 Copy from Supabase → **Project Settings → API** (Project URL + **anon public** key). Never put `service_role` in the app.
@@ -55,7 +53,7 @@ From Home you can reopen **שתף פנקס**, or leave and create/join another n
 Cursor `publish-app` cannot bind `VITE_*` secrets (reserved). Use Vercel:
 
 1. Import the GitHub repo at [vercel.com](https://vercel.com), framework **Vite**
-2. Add `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` (optional: `VITE_DEFAULT_SPACE_CODE`)
+2. Add `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY`
 3. Deploy
 
 Or claim a temporary agent deploy if one was provided in chat (expires ~60 minutes unless claimed).
@@ -75,4 +73,4 @@ Or claim a temporary agent deploy if one was provided in chat (expires ~60 minut
 
 ## Security
 
-Anyone who knows your **anon key** (public by design) **and** your `space_code` can read/write that notebook. The app generates non-guessable Crockford codes; treat the invite link like a household password.
+Row Level Security scopes every query to the notebook in the `x-space-code` request header (must match `space_code`). The anon key alone cannot list other households’ envelopes. Knowing both the anon key **and** a specific space code still grants access to that notebook — treat invite links like a household password.
